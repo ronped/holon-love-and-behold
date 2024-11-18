@@ -47,8 +47,8 @@ class holonLogoGeometry {
 	// Return a ring of vertices
 	const verts = [];
 	const norms = [];
-	center = [center.x, center.y, center.z | 0];
-	normal = new THREE.Vector3(normal.x, normal.y, normal.z | 0);
+	center = [center.x, center.y, center.z || 0];
+	normal = new THREE.Vector3(normal.x, normal.y, normal.z || 0);
 	
 	let rotate_angle_x = 0;
 	let rotate_angle_y = 0;
@@ -147,6 +147,7 @@ class holonLogoGeometry {
         geometry.setAttribute('position', positionAttribute);
         if (this.pointgeo){
     	    geometry.setAttribute('color',new THREE.BufferAttribute(new Float32Array(colors), 3));
+    	    geometry.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(norms), 3));
         } else {
     	    geometry.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(norms), 3));
     	    geometry.setIndex(idx);	
@@ -200,11 +201,11 @@ class holonLogoGeometry {
     }
 
     sine_wave_left(i){
-	return holonLogoGeometry.sine_func(i, this.center.x, this.center.y, this.center.z+this.max_thickness, this.scale*0.64, this.scale*0.2);
+	return holonLogoGeometry.sine_func(i, this.center.x, this.center.y, this.center.z/*+this.max_thickness*/, this.scale*0.64, this.scale*0.2);
     }
     
     sine_wave_right(i){
-	return holonLogoGeometry.sine_func(i, this.center.x, this.center.y, this.center.z-this.max_thickness, this.scale*0.64, -this.scale*0.2);
+	return holonLogoGeometry.sine_func(i, this.center.x, this.center.y, this.center.z/*-this.max_thickness*/, this.scale*0.64, -this.scale*0.2);
     }
 
     sine_wave_big(i){

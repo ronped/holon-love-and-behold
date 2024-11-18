@@ -167,15 +167,20 @@ const perlinNoiseShader = `
         return 2.2 * n_xyz;
       }`;
 
-
-class morphPointCloud extends THREE.Points {
+const morphCloud = (Base) => 
+class extends Base {
 
     static allObjects = [];
     
     static updateAll(){
-	morphPointCloud.allObjects.forEach( (obj) => {
-	    obj.update();
+	const allPromises = [];
+	this.allObjects.forEach( (obj) => {
+	    const retVal = obj.update();
+	    if (retVal)
+		allPromises.push(retVal);
 	})
+
+	return Promise.all(allPromises);
     }	
 
     
@@ -222,11 +227,15 @@ class morphPointCloud extends THREE.Points {
 
 
     makeMaterial(geometry) {
-	this.material = new THREE.PointsMaterial( { vertexColors: true, color: this.color, size: this.point_size, blending: THREE.NormalBlending, transparent: true, depthTest: true, depthWrite: false } );
-	if (this.point_sprite_file){
-	    const sprite = new THREE.TextureLoader().load( this.point_sprite_file );
-	    sprite.colorSpace = THREE.SRGBColorSpace;
-	    this.material.map = sprite;
+	if (this instanceof THREE.Points){
+	    this.material = new THREE.PointsMaterial( { vertexColors: true, color: this.color, size: this.point_size, blending: THREE.NormalBlending, transparent: true, depthTest: true, depthWrite: false } );
+	    if (this.point_sprite_file){
+		const sprite = new THREE.TextureLoader().load( this.point_sprite_file );
+		sprite.colorSpace = THREE.SRGBColorSpace;
+		this.material.map = sprite;
+	    }
+	} else if (this instanceof THREE.Line) {
+	    this.material = new THREE.LineBasicMaterial( { vertexColors: true, color: this.color, linewidth: this.point_size, blending: THREE.NormalBlending, transparent: true, depthTest: true, depthWrite: false } );
 	}
 	
 	
@@ -262,6 +271,12 @@ class morphPointCloud extends THREE.Points {
 	             uniform float uTime;
                     `; 
 
+		var returnIfNotLineEnd = "";
+		if (!(this instanceof THREE.Points))
+		    returnIfNotLineEnd =
+		    `if ((gl_VertexID & int(1)) == 0)
+                        return vec3(0.0,0.0,0.0);`;
+		
 		// Some common code for both displacement and texture maps
 		shader.vertexShader =
     		    shader.vertexShader.replace(
@@ -295,28 +310,29 @@ class morphPointCloud extends THREE.Points {
                          vec3 getDisplacement(uint dispMapFlags, float dispMapScale, sampler2D dispMap, float dispMapEnable, vec3 posInCloud, vec3 cloudHeight, vec3 cloudWidth, vec3 transformed, vec3 objectNormal){
                            vec2 uv;
                            vec3 posFromCenter, cloudCenter;
+                           ${returnIfNotLineEnd}
                            if ((dispMapFlags &
-                                (${morphPointCloud.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER}u |
-                                 ${morphPointCloud.DISPLACEMENT_MAP_RADIAL_U_MAPPING}u |
-                                 ${morphPointCloud.DISPLACEMENT_MAP_ANGULAR_U_MAPPING}u |
-                                 ${morphPointCloud.DISPLACEMENT_MAP_RADIAL_V_MAPPING}u |
-                                 ${morphPointCloud.DISPLACEMENT_MAP_ANGULAR_V_MAPPING}u)) != 0u){
+                                (${this.constructor.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER}u |
+                                 ${this.constructor.DISPLACEMENT_MAP_RADIAL_U_MAPPING}u |
+                                 ${this.constructor.DISPLACEMENT_MAP_ANGULAR_U_MAPPING}u |
+                                 ${this.constructor.DISPLACEMENT_MAP_RADIAL_V_MAPPING}u |
+                                 ${this.constructor.DISPLACEMENT_MAP_ANGULAR_V_MAPPING}u)) != 0u){
                              cloudCenter = cloudHeight/2.0 + cloudWidth/2.0;
                              posFromCenter = posInCloud - cloudCenter;
                            }
       			 
-                           if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_RADIAL_U_MAPPING}u) != 0u){
+                           if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_RADIAL_U_MAPPING}u) != 0u){
                              uv.x = length(posFromCenter)/length(cloudHeight-cloudCenter);
-                           } else if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_ANGULAR_U_MAPPING}u) != 0u){
+                           } else if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_ANGULAR_U_MAPPING}u) != 0u){
                              float pointAngleFromCenter = acos(dot(cloudWidth, posFromCenter)/(length(cloudWidth)*length(posFromCenter)));
                              uv.x = pointAngleFromCenter/(2.0*M_PI);
                            } else {
                              float pointAngle = acos(dot(cloudHeight, posInCloud)/(length(cloudHeight)*length(posInCloud)));
                              uv.x = length(posInCloud)*sin(pointAngle)/length(cloudWidth);
                            }
-                           if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_RADIAL_V_MAPPING}u) != 0u){
+                           if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_RADIAL_V_MAPPING}u) != 0u){
                              uv.y = length(posFromCenter)/length(cloudHeight-cloudCenter);
-                           } else if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_ANGULAR_V_MAPPING}u) != 0u){
+                           } else if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_ANGULAR_V_MAPPING}u) != 0u){
                              float pointAngleFromCenter = acos(dot(cloudWidth, posFromCenter)/(length(cloudWidth)*length(posFromCenter)));
                              float pointAngleFromCenterHeight = acos(dot(cloudHeight, posFromCenter)/(length(cloudHeight)*length(posFromCenter)));
                              uv.y = pointAngleFromCenterHeight > 0.5*M_PI ? 2.0*M_PI-pointAngleFromCenter : pointAngleFromCenter;
@@ -325,15 +341,15 @@ class morphPointCloud extends THREE.Points {
                              float pointAngle = acos(dot(cloudHeight, posInCloud)/(length(cloudHeight)*length(posInCloud)));
                              uv.y = length(posInCloud)*cos(pointAngle)/length(cloudHeight);
                            }
-                           if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING}u)!=0u){
+                           if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_LOG_U_MAPPING}u)!=0u){
                              uv.x = max(1.0-uv.x, 0.001);
                              uv.x = 1.0 - (log(uv.x)/2.303+3.0)/3.0;
                            }
                            float displacement = dispMapEnable == 1.0 ? texture2D( dispMap, uv ).x : 0.0;
-                           if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE}u)!=0u){
+                           if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_ADD_PERLIN_NOISE}u)!=0u){
                              displacement += pnoise(transformed + uTime, vec3(10.0))/10.0;
                            }
-                           if ((dispMapFlags & ${morphPointCloud.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER}u)!=0u){
+                           if ((dispMapFlags & ${this.constructor.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER}u)!=0u){
                              return dispMapScale*(displacement/length(posFromCenter))*posFromCenter;
                            } else {
                              return dispMapScale*displacement*objectNormal;
@@ -499,7 +515,7 @@ class morphPointCloud extends THREE.Points {
 		    // Use the fact that the dot product of two perpendicular vectors
 		    // is 0 and set x=rand_x and y=random_y for the perpendicular vector
 		    // We then get z=(-rand.x*norm.x-rand.y*norm.y)/norm.z
-		    direction = morphPointCloud.getPerpendicular(norm);
+		    direction = this.getPerpendicular(norm);
 		pos.add(direction.multiplyScalar(positionNoise*Math.random()));
 		position.setXYZ(i, pos.x, pos.y, pos.z);
 	    }
@@ -681,10 +697,11 @@ class morphPointCloud extends THREE.Points {
 			     upperLeftCorner : { value: [] },
 			     lowerRightCorner : { value: [] } };
 	this.clock = new THREE.Clock();
+	this.clock.start();
 	this.currentTime = {value: this.clock.getElapsedTime()};
 
 	//console.log(num_points);
-	morphPointCloud.allObjects.push(this);
+	this.constructor.allObjects.push(this);
     }
 
     getMorphId(morphDescID=this.currentMorphDescId){
@@ -708,7 +725,9 @@ class morphPointCloud extends THREE.Points {
 	    if (prevDescriptor.video){
 		prevDescriptor.video.pause();
 	    } else if (newDescriptor.video){
-		newDescriptor.video.play();
+		newDescriptor.videoStartTime = this.clock.getElapsedTime();
+		newDescriptor.video.pause();
+		newDescriptor.video.currentTime = 0;
 	    }
 	}
 	
@@ -716,18 +735,19 @@ class morphPointCloud extends THREE.Points {
 
 	if (morphId < 0){
 	    this.currentMorphDescId = index;
-	    this.update();
-	    this.displacementMap.value[0] = newDescriptor.displacementMap || defaultDisplacementMap;
-	    this.displacementMapEnable.value[0] = newDescriptor.displacementMap ? 1 : 0;
-	    this.displacementMapFlags.value[0] = newDescriptor.displacementMapFlags || 0;
-	    this.displacementMapScale.value[0] = newDescriptor.displacementMapScale || 1;
-	    this.textureMap.value[0] = newDescriptor.textureMap
-	    this.textureMapEnable.value[0] = newDescriptor.textureMap ? 1 : 0;
-	    this.textureMapOffset.value[0] = newDescriptor.textureMapOffset || new THREE.Vector2(0,0);
-	    this.textureMapScale.value[0] = newDescriptor.textureMapScale || new THREE.Vector2(1,1);
-	    this.cloudBounds.lowerLeftCorner.value[0] = newDescriptor.cloudBounds.lowerLeftCorner;
-	    this.cloudBounds.upperLeftCorner.value[0] = newDescriptor.cloudBounds.upperLeftCorner;
-	    this.cloudBounds.lowerRightCorner.value[0] = newDescriptor.cloudBounds.lowerRightCorner;
+	    this.update().then( (() => {
+		this.displacementMap.value[0] = newDescriptor.displacementMap || defaultDisplacementMap;
+		this.displacementMapEnable.value[0] = newDescriptor.displacementMap ? 1 : 0;
+		this.displacementMapFlags.value[0] = newDescriptor.displacementMapFlags || 0;
+		this.displacementMapScale.value[0] = newDescriptor.displacementMapScale || 1;
+		this.textureMap.value[0] = newDescriptor.textureMap
+		this.textureMapEnable.value[0] = newDescriptor.textureMap ? 1 : 0;
+		this.textureMapOffset.value[0] = newDescriptor.textureMapOffset || new THREE.Vector2(0,0);
+		this.textureMapScale.value[0] = newDescriptor.textureMapScale || new THREE.Vector2(1,1);
+		this.cloudBounds.lowerLeftCorner.value[0] = newDescriptor.cloudBounds.lowerLeftCorner;
+		this.cloudBounds.upperLeftCorner.value[0] = newDescriptor.cloudBounds.upperLeftCorner;
+		this.cloudBounds.lowerRightCorner.value[0] = newDescriptor.cloudBounds.lowerRightCorner;
+	    }).bind(this));
 	}
 
 	const newMorphTargetInfluences = Array(this.morphTargetInfluences.length).fill(0);
@@ -767,11 +787,26 @@ class morphPointCloud extends THREE.Points {
 
     update(){
 	this.currentTime.value = this.clock.getElapsedTime();
-	//if (this.descriptor[this.currentMorphDescId].cloudBounds)
-	//    this.descriptor[this.currentMorphDescId].cloudBounds.update();
-	if (this.descriptor[this.currentMorphDescId].video) {
-	    this.addFromDescriptor(this.descriptor[this.currentMorphDescId], this.currentMorphDescId);
+	const d = this.descriptor[this.currentMorphDescId];
+	if (d.video) {
+	    var time = this.clock.getElapsedTime() - d.videoStartTime;
+	    var play = true;
+	    if (time > d.video.duration){
+		if (d.video.loop)
+		    time -= d.video.duration;
+		else
+		    play = false;
+	    }
+		
+	    if (play){
+		d.video.currentTime = time;
+		return d.video.play().then( _ => {
+		    this.addFromDescriptor(d, this.currentMorphDescId);
+		    d.video.pause();
+		});
+	    }
 	}
+	return null;
     }
 
 
@@ -826,7 +861,7 @@ class morphPointCloud extends THREE.Points {
 		d.canvas = canvas;
 	    }
 	    const ctx = d.canvas.getContext('2d', { willReadFrequently: (d.video != null)});
-	    if (!d.video || (!d.video.paused && !d.video.ended)){
+	    if (!d.video || (!d.video.ended)){
 		ctx.drawImage(d.video || d.texture.image, 0, 0, d.canvas.width, d.canvas.height);
 		const image = ctx.getImageData(0,0,d.canvas.width,d.canvas.height);
 		const normal = new THREE.Vector3(0, 0, 1);
@@ -844,7 +879,7 @@ class morphPointCloud extends THREE.Points {
 	} else if (d.geometry){
 	    new_geom = d.geometry;
 	    if (d.pos_noise)
-		morphPointCloud.addPositionNoise(d.geometry, d.pos_noise, d.pos_noise_normal || false);
+		this.constructor.addPositionNoise(d.geometry, d.pos_noise, d.pos_noise_normal || false);
 	    d.geometry.deleteAttribute("uv");
 	    if (!d.geometry.getAttribute('color')){
 		d.geometry.setAttribute('color',this.genColorAttr(d.geometry.getAttribute("position").count, d.color || this.color));
@@ -899,7 +934,7 @@ class morphPointCloud extends THREE.Points {
 	}
 
 	if (d.randPosOrder)
-	    morphPointCloud.randomizePositionOrder(new_geom);
+	    this.constructor.randomizePositionOrder(new_geom);
 
 	var morphId = this.nextFreeMorphId;
 	this.descriptorToMorphIdMap[index] = this.nextFreeMorphId;
@@ -922,6 +957,38 @@ class morphPointCloud extends THREE.Points {
 	    normal = new THREE.BufferAttribute(normals_array, 3);
 	}
 
+	if (!(this instanceof THREE.Points)){
+	    // If this is a line cloud then duplicate all positions to make lines
+	    // that are collapsed in a single point
+	    const positions_array = new Float32Array(this.num_points*3*2);
+	    const colors_array = new Float32Array(this.num_points*3*2);
+	    const normals_array = new Float32Array(this.num_points*3*2);
+	    const line_position = new THREE.BufferAttribute(positions_array, 3);
+	    const line_color = new THREE.BufferAttribute(colors_array, 3);
+	    const line_normal = new THREE.BufferAttribute(normals_array, 3);
+	    const vec3 = new THREE.Vector3();
+	    for (let i=0; i<this.num_points; i++){
+		vec3.fromBufferAttribute(normal, i);
+		line_normal.setXYZ(2*i, vec3.x, vec3.y, vec3.z);
+		line_normal.setXYZ(2*i+1, vec3.x, vec3.y, vec3.z);
+		const normal_vec3 = vec3.clone(); 
+
+		vec3.fromBufferAttribute(color, i);
+		line_color.setXYZ(2*i, vec3.x, vec3.y, vec3.z);
+		line_color.setXYZ(2*i+1, vec3.x, vec3.y, vec3.z);
+
+		vec3.fromBufferAttribute(position, i);
+		line_position.setXYZ(2*i, vec3.x, vec3.y, vec3.z);
+		// Line size is equal to point_size - let the line follow the normal
+		vec3.add(normal_vec3.multiplyScalar(this.point_size));
+		line_position.setXYZ(2*i+1, vec3.x, vec3.y, vec3.z);
+	    }
+	    position = line_position;
+	    color = line_color;
+	    normal = line_normal;
+	}
+	
+	
 	if (!this.materialMade){
 	    position.needsUpdate = true;
 	    new_geom.setAttribute("position", position);
@@ -1036,12 +1103,12 @@ class morphPointCloud extends THREE.Points {
 		if (d.filename){
 		    const file_ext = d.filename.split(".").pop();
 		    if (["gltf", "glb"].includes(file_ext)){
-			morphPointCloud.loadGLTF(d.filename,
+			this.constructor.loadGLTF(d.filename,
 						 color,
 						 d.pos_noise || null,
 						 function (t) { loadDone(descriptor,t, idx); } );
 		    } else if (file_ext == "svg"){
-			morphPointCloud.SVGtoObject3D(d.filename,
+			this.constructor.SVGtoObject3D(d.filename,
 						      color,
 						      function (t) { loadDone(descriptor,t, idx); } );
 		    } else if (imageExtension.includes(file_ext)){
@@ -1050,10 +1117,11 @@ class morphPointCloud extends THREE.Points {
 		    } else if (videoExtension.includes(file_ext)){
 			const video = document.createElement('video');
 			video.src = d.filename;
-			video.autoplay = true;
+			video.autoplay = false;
 			video.style = "display:none";
 			video.muted = true;
-			video.loop = true;
+			video.loop = d.loop || false;
+			video.preload = "auto";
 			d.video = video;
 		    }
 		} else if (d.webcam){
@@ -1397,6 +1465,15 @@ class morphPointCloud extends THREE.Points {
 	return geometry;
     }
 
+};
+
+class morphPointCloud extends morphCloud(THREE.Points) {
+
 }
 
-export {morphPointCloud};
+class morphLineCloud extends morphCloud(THREE.LineSegments) {
+
+}
+    
+
+export {morphPointCloud, morphLineCloud};

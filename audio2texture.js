@@ -1,80 +1,7 @@
 import * as THREE from 'three';
+import webfft from 'webfft';
 
 class audio2Texture {
-
-    updateTexture(){
-	if (this.analyserNode){
-	    var get_fft = false;
-	    var get_time = false;
-	    this.descriptor.forEach( (d, idx) => {
-	        if (d.type == audio2Texture.LEVEL){
-		    get_fft = true;
-	        } else if (d.type == audio2Texture.FREQ_SPECTRUM){
-		    get_fft = true;
-	        } else if (d.type == audio2Texture.FREQ_SPECTRUM_TIME){
-		    get_fft = true;
-	        } else if (d.type == audio2Texture.TIME){
-		    get_time = true;
-	        } else {
-	            console.error("Unknown autio2Texture type: " + d.type)
-	        }
-	    });
-
-	    var fftDataF32;
-	    if (get_fft){
-		// Get the FFT data
-		const fftData = new Uint8Array(this.tex_width);
-		this.analyserNode.getByteFrequencyData(fftData);
-		fftDataF32 = new Float32Array(this.tex_width);
-		fftData.forEach((elmt, idx) => fftDataF32[idx] = (elmt/255));
-	    }
-	    var timeDataF32;
-	    if (get_time){
-		// Get the time data
-		const timeData = new Uint8Array(this.tex_width);
-		this.lowPassAnalyserNode.getByteTimeDomainData(timeData);
-		timeDataF32 = new Float32Array(this.tex_width);
-		timeData.forEach((elmt, idx) => timeDataF32[idx] = (elmt/255)-0.5);
-	    }
-
-	    this.descriptor.forEach( (d, idx) => {
-	        if (d.type == audio2Texture.LEVEL){
-		    get_fft = true;
-		    var sum = 0;
-		    fftDataF32.forEach( (d, idx) => {
-			sum+=d;
-		    });
-		    this.tex_data[idx][0] = Math.pow(100.0, sum/this.tex_width)/100.0 - 0.01;
-	        } else if (d.type == audio2Texture.FREQ_SPECTRUM){
-		    this.tex_data[idx].set(fftDataF32, 0)
-	        } else if (d.type == audio2Texture.FREQ_SPECTRUM_TIME){
-		    this.tex_data[idx].set(this.tex_data[idx].subarray(0, -this.tex_width), this.tex_width);
-		    this.tex_data[idx].set(fftDataF32, 0)
-	        } else if (d.type == audio2Texture.TIME){
-		    this.tex_data[idx].set(timeDataF32, 0)
-	        } else {
-	            console.error("Unknown autio2Texture type: " + d.type)
-	        }
-
- 		this.texture[idx].needsUpdate = true;
-	    })
-	}
-    }
-
-    start(){
-	// Play the audio
-	this.audioSourceNode.start();
-    }
-	
-    stop(){
-	// Stop the audio
-	this.audioSourceNode.stop();
-    }
-
-    pause(){
-	// Pause the audio
-	this.audioSourceNode.pause();
-    }
 
     // Descriptor is a list with elements for each texure that contains
     //
@@ -83,12 +10,101 @@ class audio2Texture {
     static FREQ_SPECTRUM      = 1;
     static LEVEL              = 2;
     static TIME               = 3;
+
+    static OFFLINE_SAMPLE_RATE = 48000;
+    static OFFLINE_CHANNELS = 2;
     
-    constructor(audio_file, descriptor, tex_width, tex_height){
+    updateTexture(){
+	var get_fft = false;
+	var get_time = false;
+	var fftDataF32;
+	var timeDataF32;
+	this.descriptor.forEach( (d, idx) => {
+	    if (d.type == audio2Texture.LEVEL){
+		get_fft = true;
+	    } else if (d.type == audio2Texture.FREQ_SPECTRUM){
+		get_fft = true;
+	    } else if (d.type == audio2Texture.FREQ_SPECTRUM_TIME){
+		get_fft = true;
+	    } else if (d.type == audio2Texture.TIME){
+		get_time = true;
+	    } else {
+	        console.error("Unknown audio2Texture type: " + d.type)
+	    }
+	});
+	if (this.clock.running){
+	    const curSample = Math.floor(this.clock.getElapsedTime()*audio2Texture.OFFLINE_SAMPLE_RATE);
+	    const timeWindowData = new Float32Array(this.tex_width*2);
+	    timeWindowData.fill(0);
+	    for (let ch=0; ch < audio2Texture.OFFLINE_CHANNELS; ch++){
+		const data = this.renderedBuffer.getChannelData(ch);
+		const copyLength = Math.min(timeWindowData.length, data.length-curSample); 
+		for (var i=copyLength; i-->0;) timeWindowData[i] += data[i+curSample]/audio2Texture.OFFLINE_CHANNELS;
+	    }
+	    
+	    if (get_fft){
+		const fftOut = this.fft.fftr(timeWindowData, 'kissWasm');
+		// Get the FFT data
+		for (var i=this.fftDataF32.length; i-->0;) this.fftDataF32[i] = this.fftDataF32[i]*this.fftSmoothing + Math.sqrt(fftOut[2*i]**2 + fftOut[2*i+1]**2)/8;
+	    }
+
+	    if (get_time){
+		timeDataF32 = timeWindowData.slice(0, this.tex_width);
+	    }
+
+	    this.descriptor.forEach( (d, idx) => {
+	        if (d.type == audio2Texture.LEVEL){
+		    var sum = 0;
+		    this.fftDataF32.forEach( (d, idx) => {
+			sum+=d;
+		    });
+		    this.tex_data[idx][0] = sum/this.tex_width; // Math.pow(100.0, sum/this.tex_width)/100.0 - 0.01;
+	        } else if (d.type == audio2Texture.FREQ_SPECTRUM){
+		    this.tex_data[idx].set(this.fftDataF32, 0)
+	        } else if (d.type == audio2Texture.FREQ_SPECTRUM_TIME){
+		    this.tex_data[idx].set(this.tex_data[idx].subarray(0, -this.tex_width), this.tex_width);
+		    this.tex_data[idx].set(this.fftDataF32, 0)
+	        } else if (d.type == audio2Texture.TIME){
+		    this.tex_data[idx].set(timeDataF32, 0)
+	        } else {
+	            console.error("Unknown audio2Texture type: " + d.type)
+	        }
+
+ 		this.texture[idx].needsUpdate = true;
+	    })
+	}
+    }
+
+    start(offline=false){
+	// Play the audio
+	if (!offline)
+	    this.audioSourceNode.start();
+	this.clock.start();
+	this.offline = offline;
+    }
+	
+    stop(){
+	// Stop the audio
+	if (!this.offline)
+	    this.audioSourceNode.stop();
+	this.clock.stop();
+    }
+
+    pause(){
+	// Pause the audio
+	if (!this.offline)
+	    this.audioSourceNode.pause();
+    }
+
+    
+    constructor(audio_file, descriptor, tex_width, tex_height, fft_smoothing=0.5){
 	this.texture = [];
 	this.tex_data = [];
 	this.tex_width = tex_width;
 	this.descriptor = descriptor;
+	this.fftDataF32 = new Float32Array(this.tex_width);
+	this.fftDataF32.fill(0);
+	this.fftSmoothing = fft_smoothing;
 	descriptor.forEach( (d, idx) => {
 	    var width, height;
 	    var wrapS = THREE.MirroredRepeatWrapping;
@@ -118,10 +134,13 @@ class audio2Texture {
 	    this.texture[idx].internalFormat = 'R32F';
 	    this.texture[idx].magFilter = THREE.LinearFilter;
 	    this.texture[idx].minFilter = THREE.LinearFilter;
-	}
-	)
-	
+	});
+
 	this.audioContext = new AudioContext();
+	this.offlineAudioContext = new OfflineAudioContext(audio2Texture.OFFLINE_CHANNELS, audio2Texture.OFFLINE_SAMPLE_RATE*60, audio2Texture.OFFLINE_SAMPLE_RATE);
+	this.clock = new THREE.Clock(false);
+	this.fft = new webfft(this.tex_width*2);
+
 	var buffer;
 	fetch(audio_file)
 	    .then(data => data.arrayBuffer())
@@ -129,27 +148,22 @@ class audio2Texture {
 		this.audioContext.decodeAudioData(arrayBuffer))
 	    .then(decodedAudio => {
 		buffer = decodedAudio;
-		this.audioSourceNode = this.audioContext.createBufferSource();
+		this.audioSourceNode = this.offlineAudioContext.createBufferSource();
 		this.audioSourceNode.buffer = buffer;
 
-		//Create analyser node
-		this.analyserNode = this.audioContext.createAnalyser();
-		this.analyserNode.fftSize = this.tex_width*2;
-
-		//Create Biquad filter node
-		this.lowPassAnalyserNode = this.audioContext.createAnalyser();
-		this.lowPassAnalyserNode.fftSize = this.tex_width*2;
-		this.biquadFilter = this.audioContext.createBiquadFilter();
-		this.biquadFilter.type = "lowpass";
-		this.biquadFilter.frequency.value = 200;
-		
-		//Set up audio node network
-		this.audioSourceNode.connect(this.analyserNode);
-		this.audioSourceNode.connect(this.biquadFilter);
-		this.biquadFilter.connect(this.lowPassAnalyserNode);
-		this.analyserNode.connect(this.audioContext.destination);
+		this.audioSourceNode.connect(this.offlineAudioContext.destination);
+		this.audioSourceNode.start();
+		return this.offlineAudioContext.startRendering();
 	    })
-	
+	    .then(renderedBuffer => {
+		if (renderedBuffer){
+		    this.renderedBuffer = renderedBuffer;
+		    this.audioSourceNode = new AudioBufferSourceNode(this.audioContext, {
+			buffer: renderedBuffer,
+		    });
+		    this.audioSourceNode.connect(this.audioContext.destination);		    
+		}
+	    })
     }
 }
 

@@ -2,13 +2,25 @@
 <html>
 <head>
   <title></title>
-  <script  type="importmap">{
-    "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
-    "@tweenjs/tween.js": "https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.2/+esm"
+  <!-- script type="importmap">
+      {
+	"imports": {
+	    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+	    "jquery": "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js",
+	    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+	    "@tweenjs/tween.js": "https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.2/+esm"
+	}
+     }
+  </script -->
+  <script type="importmap">
+    {
+	"imports": {
+	    "three": "http://localhost/webpage/external_modules/cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+	    "jquery": "./external_modules/jquery.min.js",
+	    "three/addons/": "./external_modules/cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+	    "@tweenjs/tween.js": "./external_modules/tween.js"
+	}
     }
-}
   </script>
   <style>
     html, body { margin: 0; padding:0; overflow: hidden; }	

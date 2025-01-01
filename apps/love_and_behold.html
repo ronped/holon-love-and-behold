@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title></title>
+  <!-- script type="importmap">
+      {
+	"imports": {
+	    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+	    "jquery": "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js",
+	    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+	    "@tweenjs/tween.js": "https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.2/+esm",
+	    "webfft": "https://cdn.jsdelivr.net/npm/webfft@1.0.3/lib/main.min.js",
+	    "CCapture" : "https://cdn.jsdelivr.net/npm/ccapture.js@1.1.0/build/CCapture.all.min.js"
+	}
+     }
+  </script -->
+  <script type="importmap">
+    {
+	"imports": {
+	    "three": "http://localhost/webpage/external_modules/cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+	    "jquery": "../external_modules/jquery.min.js",
+	    "three/addons/": "../external_modules/cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+	    "@tweenjs/tween.js": "../external_modules/tween.js",
+	    "webfft": "https://cdn.jsdelivr.net/npm/webfft@1.0.3/lib/main.min.js"
+	}
+    }
+  </script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/CCapture.js"></script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/webm-writer-0.2.0.js"></script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/download.js"></script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/tar.js"></script>
+  <style>
+    html, body { margin: 0; padding:0; overflow: hidden; }	
+    h1 { color:white; position:absolute; top:50%; z-index:100; width:100%; text-align: center; transform: translate(0,-100%); font-family: 'Raleway', sans-serif; font-weight: 100; letter-spacing: 40px; text-transform: uppercase; font-size: 16px; }	
+    #videoBacker {  background-size: cover; object-fit: cover; z-index: 9; opacity:.3; position: absolute; top:0px; left:0px; width:100vw; height: 100vh; transition: 1s opacity ease-in-out;
+		 }		
+    .bar-top { background-color: black; height:100px; position: absolute; top:0; left:0;z-index: 100; width:100vw;}
+    .bar-bottom { background-color: black; height:100px; position: absolute; bottom:0; left:0; z-index: 100; width:100vw;}
+
+    #info {
+	position: absolute;
+	top: 10px;
+	width: 100%;
+	text-align: center;
+	z-index: 100;
+	display:block;
+	color: white;
+    }
+    #loading-screen {
+	position: absolute;
+	z-index: 2;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background-color: #000000;
+	opacity: 1;
+ 	transition: 1s opacity;
+    }
+
+    #loading-screen.fade-out {
+	opacity: 0;
+    }
+    
+    #loader {
+	display: block;
+	position: relative;
+	left: 50%;
+	top: 50%;
+	width: 150px;
+	height: 150px;
+	margin: -75px 0 0 -75px;
+	border-radius: 50%;
+	border: 3px solid transparent;
+	border-top-color: #9370DB;
+	-webkit-animation: spin 2s linear infinite;
+	animation: spin 2s linear infinite;
+    }
+    #loader:before {
+	content: "";
+	position: absolute;
+	top: 5px;
+	left: 5px;
+	right: 5px;
+	bottom: 5px;
+	border-radius: 50%;
+	border: 3px solid transparent;
+	border-top-color: #BA55D3;
+	-webkit-animation: spin 3s linear infinite;
+	animation: spin 3s linear infinite;
+    }
+    #loader:after {
+	content: "";
+	position: absolute;
+	top: 15px;
+	left: 15px;
+	right: 15px;
+	bottom: 15px;
+	border-radius: 50%;
+	border: 3px solid transparent;
+	border-top-color: #CECE00;
+	-webkit-animation: spin 1.5s linear infinite;
+	animation: spin 1.5s linear infinite;
+    }
+    @-webkit-keyframes spin {
+	0%   {
+            -webkit-transform: rotate(0deg);
+            -ms-transform: rotate(0deg);
+            transform: rotate(0deg);
+	}
+	100% {
+            -webkit-transform: rotate(360deg);
+            -ms-transform: rotate(360deg);
+            transform: rotate(360deg);
+	}
+    }
+    @keyframes spin {
+	0%   {
+            -webkit-transform: rotate(0deg);
+            -ms-transform: rotate(0deg);
+            transform: rotate(0deg);
+	}
+	100% {
+            -webkit-transform: rotate(360deg);
+            -ms-transform: rotate(360deg);
+            transform: rotate(360deg);
+	}
+    }
+    
+  </style>
+</head>
+<body>
+  <script type="module" src="love_and_behold.js">
+  </script>
+  <div id="info"></div>
+  <section id="loading-screen">
+    <div id="loader"></div>
+  </section>
+</body>
+</html>

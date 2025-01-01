@@ -214,11 +214,11 @@ class holonLogoGeometry {
 
     
     
-    constructor(color=0xF0F0F0, pointgeo=false, scale=1.0, center = new THREE.Vector3(0,0,0), circle_segments = 16, points = 128) {
+    constructor(color=0xF0F0F0, pointgeo=false, scale=1.0, center = new THREE.Vector3(0,0,0), circle_segments = 16, points = 128, max_thickness = null) {
 	this.center = center;
 	this.circle_segments = circle_segments*scale;
 	this.points = points*scale;
-	this.max_thickness = 0.05*scale;
+	this.max_thickness = max_thickness || 0.05*scale;
 	this.color = new THREE.Color(color);
 	this.pointgeo = pointgeo;
 	this.scale = scale;

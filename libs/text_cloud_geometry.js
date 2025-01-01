@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js';
 
 
 class TextCloudGeometry extends TextGeometry {
@@ -30,42 +31,11 @@ class TextCloudGeometry extends TextGeometry {
 
     constructor(text, params, pointsize, path=null){
 	super(text, params);
-	this.type = 'TextCloudGemoetry';
+	this.type = 'TextCloudGeometry';
 
 	if (path)
 	    this.followPath(path);
 
-	const pos_buf = this.getAttribute("position");
-	const new_points = [];
-	
-	var pointsPerArea = 0;
-	for (let i=0; i<pos_buf.count; i+=3){
-	    const triangle = new THREE.Triangle();
-	    triangle.setFromAttributeAndIndices(
-		pos_buf,
-		i,
-		i+1,
-		i+2);
-
-	    for (let j=0; j<3; j+=1){
-		new_points.push(pos_buf.getX(i+j));
-		new_points.push(pos_buf.getY(i+j));
-		new_points.push(pos_buf.getZ(i+j));
-	    }
-	    
-	    const area = triangle.getArea();
-	    pointsPerArea += area/(pointsize**2);
-	    const recursions = Math.log(pointsPerArea)/Math.log(3);
-	    if (recursions >= 0){
-		this.constructor.splitTriangleMidpoint(triangle, new_points, recursions);
-		pointsPerArea = 0;
-	    }
-	}
-	
-	const new_pos_count = new_points.length/3;
-	const new_pos_array = new Float32Array(new_pos_count*3);
-	new_pos_array.set(new_points);
-	this.setAttribute("position", new THREE.BufferAttribute(new_pos_array, 3));
 	this.setAttribute("normal", this.getAttribute("position").clone() );
 	this.deleteAttribute("uv");
 	this.deleteAttribute("color");
@@ -104,7 +74,10 @@ class TextCloudGeometry extends TextGeometry {
 	var loaderPromise = new Promise(function(resolve, reject) {
 	    const font = new FontLoader().load(fontfile, (font) => {
 		params.font = font;
-		const text_geometry = new TextCloudGeometry(text, params, pointsize, curve);
+		var text_geometry = new TextCloudGeometry(text, params, pointsize, curve);
+		const tessellateModifier = new TessellateModifier(params.size/10, 6);
+		text_geometry = tessellateModifier.modify( text_geometry );
+		
 		resolve(text_geometry);
 	    })
 	});

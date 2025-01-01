@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title></title>
+  <!-- script type="importmap">
+      {
+	"imports": {
+	    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+	    "jquery": "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js",
+	    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+	    "@tweenjs/tween.js": "https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@23.1.2/+esm",
+	    "webfft": "https://cdn.jsdelivr.net/npm/webfft@1.0.3/lib/main.min.js",
+	    "CCapture" : "https://cdn.jsdelivr.net/npm/ccapture.js@1.1.0/build/CCapture.all.min.js"
+	}
+     }
+  </script -->
+  <script type="importmap">
+    {
+	"imports": {
+	    "three": "http://localhost/webpage/external_modules/cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+	    "jquery": "../external_modules/jquery.min.js",
+	    "three/addons/": "../external_modules/cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+	    "@tweenjs/tween.js": "../external_modules/tween.js",
+	    "webfft": "https://cdn.jsdelivr.net/npm/webfft@1.0.3/lib/main.min.js"
+	}
+    }
+  </script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/CCapture.js"></script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/webm-writer-0.2.0.js"></script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/download.js"></script>
+  <script src="../external_modules/cdn.jsdelivr.net/npm/ccapture.js@1.1.0/src/tar.js"></script>
+  <Style>
+    html, body { margin: 0; padding:0; overflow: hidden; }	
+    h1 { color:white; position:absolute; top:50%; z-index:100; width:100%; text-align: center; transform: translate(0,-100%); font-family: 'Raleway', sans-serif; font-weight: 100; letter-spacing: 40px; text-transform: uppercase; font-size: 16px; }	
+    #videoBacker {  background-size: cover; object-fit: cover; z-index: 9; opacity:.3; position: absolute; top:0px; left:0px; width:100vw; height: 100vh; transition: 1s opacity ease-in-out;
+		 }		
+    .bar-top { background-color: black; height:100px; position: absolute; top:0; left:0;z-index: 100; width:100vw;}
+    .bar-bottom { background-color: black; height:100px; position: absolute; bottom:0; left:0; z-index: 100; width:100vw;}
+  </style>
+</head>
+<body>
+  <script type="module" src="samsara_teaser.js">
+  </script>
+	
+  <h1></h1>
+  <!--video id="videoBacker" loop src="assets/snow.mp4" autoplay muted ></video-->
+  <!--div class='bar-top'></div-->
+  <!--div class='bar-bottom'></div-->
+</body>
+</html>

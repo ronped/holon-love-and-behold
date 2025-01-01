@@ -5,7 +5,7 @@ import { holonLogoGeometry } from "../libs/holon_logo.js";
 import { morphPointCloud, morphLineCloud } from "../libs/morph_point_cloud.js";
 import { StarGeometry } from "../libs/star_geometry.js";
 import { TextCloudGeometry } from "../libs/text_cloud_geometry.js";
-import { audio2Texture } from "../libs/audio2texture.js";
+import { Audio2Texture } from "../libs/audio2texture.js";
 import { MOVE } from "../libs//move.js";
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
@@ -226,13 +226,10 @@ async function makePointCloud(){
     //  Audio Texture for depth
     //
     const audioTexDescriptor = [
-	{ type: audio2Texture.LEVEL },
-	/*{ type: audio2Texture.FREQ_SPECTRUM_TIME},
-	{ type: audio2Texture.TIME},
-	{ type: audio2Texture.FREQ_SPECTRUM }*/
+	{ type: Audio2Texture.LEVEL, level_iir_filter: true},
     ];
     
-    audioTexture = new audio2Texture("../assets/Samsara-Teaser.mp3", audioTexDescriptor, 1024, 1024);
+    audioTexture = new Audio2Texture("../assets/Samsara-Teaser.mp3", 60, audioTexDescriptor, 1024, 1024, true, 0.5, 0.1);
     
        
     //
@@ -289,8 +286,8 @@ async function makePointCloud(){
 	  pos_noise: 3,
 	  point_space_ratio: 0.1,
 	  displacementMap: coverDepthTexture,
-	  displacementMapFlags: 0*morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + 0*morphPointCloud.DISPLACEMENT_MAP_ANGULAR_U_MAPPING + 1*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE,
-	  displacementMapScale: 2
+	  displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_ENABLE,
+	  displacementMapScale: 1
 	},
 	{ geometry: sphere_geom,
 	  randPosOrder: true,
@@ -300,6 +297,7 @@ async function makePointCloud(){
 	  //textureMap: dekorTexture,
 	  //textureMapScale: new THREE.Vector2(1,1),
 	  displacementMapFlags: 1*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE,
+	  alpha: 1.0,
 	  color: function (i, obj) {
 	      const colorAttr = obj.geometry.getAttribute('color');
 	      return new THREE.Color(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i));
@@ -310,6 +308,7 @@ async function makePointCloud(){
 	  pos:new THREE.Vector3(0,0,0),
 	  pos_noise: 0.01,
 	  scale: new THREE.Vector3(4, 4, 4),
+	  alpha: 1.0,
 	  color: function (i, obj) {
 	      const colorAttr = obj.geometry.getAttribute('color');
 	      return new THREE.Color(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i));
@@ -330,12 +329,12 @@ async function makePointCloud(){
 	},
     ]
 
-    cover_point_cloud = new morphPointCloud(cover_dim**2, 0.02, 0xffffe0, '../assets/heart.png');
+    cover_point_cloud = new morphPointCloud(cover_dim**2, 0.02, 0xffffe0, 1.0, '../assets/heart.png');
     cover_point_cloud.load(cover_pointcloud_descriptor, 1).then(
 	function (obj) {
 	    obj.layers.enable( BLOOM_SCENE );
 	    scene.add(obj);
-	    cover_point_cloud_move = new MOVE(obj, true);
+	    cover_point_cloud_move = new MOVE(obj, false, true);
 
 	    const morph_cover_width =
 		  obj.cloudBounds.lowerLeftCorner.value[obj.getMorphId(0)+1].clone()
@@ -406,7 +405,7 @@ const y_unit = new THREE.Vector3(0,1,0);
 const z_unit = new THREE.Vector3(0,0,1);
 
 const cameraMove = new MOVE(camera);
-var cover_depth_scale = {value: 1};
+var cover_depth_scale = {value: 2};
 var capturer;
 
 var morphEvent = null;
@@ -430,7 +429,7 @@ var animate = async function () {
     if (audioTexture){
 	audioTexture.updateTexture();
 	if (cover_point_cloud)
-	    cover_point_cloud.displacementMapScale.value[cover_point_cloud.getMorphId(0)+1] = cover_depth_scale.value*audioTexture.texture[0].image.data[0];
+	    cover_point_cloud.displacementMapScale.value[0] = cover_depth_scale.value*audioTexture.texture[0].image.data[0];
     }
 
     MOVE.update();

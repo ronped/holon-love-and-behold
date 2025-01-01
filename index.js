@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import TWEEN from '@tweenjs/tween.js';
-import { holonLogoGeometry } from "./holon_logo.js";
-import { morphPointCloud } from "./morph_point_cloud.js";
-import { StarGeometry } from "./star_geometry.js";
-import { TextCloudGeometry } from "./text_cloud_geometry.js";
-import { audio2Texture } from "./audio2texture.js";
-import { MOVE } from "./move.js";
+import { holonLogoGeometry } from "./libs/holon_logo.js";
+import { morphPointCloud } from "./libs/morph_point_cloud.js";
+import { StarGeometry } from "./libs/star_geometry.js";
+import { TextCloudGeometry } from "./libs/text_cloud_geometry.js";
+import { Audio2Texture } from "./libs/audio2texture.js";
+import { MOVE } from "./libs/move.js";
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -588,13 +588,13 @@ async function makePointCloud(){
 */
 
     const audioTexDescriptor = [
-	{ type: audio2Texture.LEVEL },
-	{ type: audio2Texture.FREQ_SPECTRUM_TIME},
-	{ type: audio2Texture.TIME},
-	{ type: audio2Texture.FREQ_SPECTRUM }
+	{ type: Audio2Texture.LEVEL },
+	{ type: Audio2Texture.FREQ_SPECTRUM_TIME},
+	{ type: Audio2Texture.TIME},
+	{ type: Audio2Texture.FREQ_SPECTRUM }
     ];
     
-    audioTexture = new audio2Texture("assets/LoveAndBehold.mp3", audioTexDescriptor, 512, 512);
+    audioTexture = new Audio2Texture("assets/LoveAndBehold.mp3", 60, audioTexDescriptor, 512, 512);
     
     renderer.domElement.addEventListener('click',
 					 function (event) {
@@ -772,7 +772,7 @@ async function makePointCloud(){
 		logo.onclick(obj);
 	}
 	
-	morph_logo_point_cloud.push(new morphPointCloud(SoMeLogoPoints, 0.01, 0xffffe0, 'assets/heart.png', logoClick, renderer, camera));
+	morph_logo_point_cloud.push(new morphPointCloud(SoMeLogoPoints, 0.01, 0xffffe0, 1.0, 'assets/heart.png', logoClick, renderer, camera));
 	morph_logo_point_cloud[morph_logo_point_cloud.length-1].load(logo_pointcloud_desc).then(
 	    function (obj) {
 		obj.layers.enable( BLOOM_SCENE );
@@ -910,7 +910,7 @@ async function makePointCloud(){
 	},
     ]
 
-    cover_point_cloud = new morphPointCloud(cover_dim**2, 0.02, 0xffffe0, 'assets/heart.png');
+    cover_point_cloud = new morphPointCloud(cover_dim**2, 0.02, 0xffffe0, 1.0, 'assets/heart.png');
     cover_point_cloud.load(cover_pointcloud_descriptor).then(
 	function (obj) {
 	    obj.layers.enable( BLOOM_SCENE );
@@ -1066,7 +1066,7 @@ async function makePointCloud(){
 	},
     ];
 
-    morph_point_cloud_dekor[0] = new morphPointCloud(dekorPointsOuter, 0.01, 0xffffe0, 'assets/heart.png');
+    morph_point_cloud_dekor[0] = new morphPointCloud(dekorPointsOuter, 0.01, 0xffffe0, 1.0, 'assets/heart.png');
     morph_point_cloud_dekor[0].load(pointcloud_descriptor_dekor_outer).then(
 	function (obj) {
 	    obj.layers.enable( BLOOM_SCENE );
@@ -1075,7 +1075,7 @@ async function makePointCloud(){
 	}
     );
 
-    morph_point_cloud_dekor[1] = new morphPointCloud(dekorPointsInner, 0.01, 0xffffe0, 'assets/heart.png');
+    morph_point_cloud_dekor[1] = new morphPointCloud(dekorPointsInner, 0.01, 0xffffe0, 1.0, 'assets/heart.png');
     morph_point_cloud_dekor[1].load(pointcloud_descriptor_dekor_inner).then(
 	function (obj) {
 	    obj.layers.enable( BLOOM_SCENE );
@@ -1088,7 +1088,7 @@ async function makePointCloud(){
 	}
     );
 
-    morph_point_cloud_dekor[2] = new morphPointCloud(dekorPointsMiddle, 0.01, 0xffffe0, 'assets/heart.png');
+    morph_point_cloud_dekor[2] = new morphPointCloud(dekorPointsMiddle, 0.01, 0xffffe0, 1.0, 'assets/heart.png');
     morph_point_cloud_dekor[2].load(pointcloud_descriptor_dekor_middle).then(
 	function (obj) {
 	    obj.layers.enable( BLOOM_SCENE );

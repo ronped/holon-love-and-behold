@@ -19,6 +19,9 @@ class CurveFunction {
 
 }
 
+const _vZero = new THREE.Vector3(0,0,0);
+const _m1 = new THREE.Matrix4();
+const _euler = new THREE.Euler();
 
 class MOVE {
 
@@ -29,13 +32,15 @@ class MOVE {
 	})
     }	
     
-    constructor(obj, absoluteStartTime=false, log=false){
+    constructor(obj, absoluteStartTime=false, log=false, onEnd = null){
 	this.obj = obj;
 	this.clock = new THREE.Clock(false);
 	this.moveQueue = [];
 	this.curMove = 0;
 	this.absoluteStartTime = absoluteStartTime;
+	this.onEnd = onEnd;
 	this.log = log;
+	this.objTiltAngleBuffer = [];
 	if (this.log && typeof this.log !== 'string' && !(this.log instanceof String))
 	    this.log = obj.constructor.name;
 	MOVE.allMoves.push(this);
@@ -107,8 +112,10 @@ class MOVE {
 	return this;
     }
 
-    start(){
+    start(from_time=null){
 	this.clock.start();
+	if (from_time)
+	    this.clock.elapsedTime = from_time;
 	if (this.log)
 	    console.log(this.log + ": Time " + this.clock.elapsedTime + " Move started");
 	return this;
@@ -121,27 +128,50 @@ class MOVE {
 	return this;
     }
 
-    getRotationAngleCurve(curve, point){
+    reset(){
+	this.moveQueue = [];
+	this.curMove = 0;
+	this.clock.stop();
+	return this;
+    }
+
+
+    getRotationAngleCurve(curve, point, tilt=false){
 	const tangent = curve.getTangentAt(point);
+	var up = this.obj.up;
+	if (tilt){
+	    this.objPrevTangent = this.objPrevTangent || curve.getTangentAt(0);
+	    const tangentCross = this.objPrevTangent.clone().cross(tangent);
+	    const rotateLeft = tangentCross.angleTo(up) < Math.PI/4;
+	    const tangentDeltaAngle = this.objPrevTangent.angleTo(tangent);
+	    this.objTiltAngleBuffer.push(20*(rotateLeft ? tangentDeltaAngle : -tangentDeltaAngle));
+	    if (this.objTiltAngleBuffer.length > 10)
+		this.objTiltAngleBuffer.shift();
+	    var objTiltAngle = this.objTiltAngleBuffer.reduce(
+		(accumulator, currentValue) => accumulator + currentValue/this.objTiltAngleBuffer.length,
+		0);
+	    objTiltAngle = Math.max(-Math.PI/4, Math.min(objTiltAngle, Math.PI/4));
+	    up = up.clone().applyAxisAngle(new THREE.Vector3(0,0,1), objTiltAngle);
+	    this.objPrevTangent = tangent;
+	}
+	
 	// If this is a camera object then the view direction
 	// is in the opposite direction of the object direction
 	// so flip the tangen vector to get it to follow the view
 	// direction
-	if (this.obj.isCamera){
-	    tangent.negate();
+	if (this.obj.isCamera || this.obj.isLight){
+	    _m1.lookAt(_vZero, tangent, up);
+	} else {
+	    _m1.lookAt(tangent, _vZero, up);
 	}
-	// Angle around x-axis where 0 means y==0
-	// and z is positive
-	const angle_x = Math.atan2(-tangent.y,Math.abs(tangent.z));
-	// Angle around y-axis where 0 means x==0
-	// and z is positive
-	const angle_y = Math.atan2(tangent.x,tangent.z);
-	return new THREE.Vector3(angle_x, angle_y, 0);
+
+	return new THREE.Vector3().setFromEuler(_euler.setFromRotationMatrix(_m1, "XYZ"));
     }
 
 
     static NO_CHANGE = 1;
     static ROTATE_TO_TANGENT = 2;
+    static ROTATE_TO_TANGENT_AND_TILT = 3;
 
     getCurPosFromQueue(){
 	if (this.moveQueue.length>0){
@@ -184,6 +214,8 @@ class MOVE {
 		    return queueElmt.rotationCurve;
 		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT)
 		    return this.getRotationAngleCurve(queueElmt.pathCurve, 1.0);
+		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT)
+		    return this.getRotationAngleCurve(queueElmt.pathCurve, 1.0, true);
 		else if (queueElmt.rotationCurve)
 		    return queueElmt.rotationCurve.getPointAt(1.0);
 		else
@@ -204,9 +236,9 @@ class MOVE {
 	    if (pos.constructor === Array){
 		pos.unshift(fromPos);
 		pathCurve = new THREE.CatmullRomCurve3(pos);
-	    } else if (pos instanceof THREE.Vector3) {
+	    } else if (pos instanceof THREE.Vector3 && !fromPos.isObject3D) {
 		pathCurve = new THREE.LineCurve3(fromPos, pos);
-	    } else if (pos == MOVE.NO_CHANGE){
+	    } else if (pos == MOVE.NO_CHANGE && !fromPos.isObject3D){
 		pathCurve = new THREE.LineCurve3(fromPos, fromPos);
 	    } else {
 		pathCurve = pos;
@@ -216,7 +248,7 @@ class MOVE {
 	}
 	
 	if (rotation){
-	    if (rotation.constructor === Array && !fromRotation.isObject3D){
+	    if (rotation.constructor === Array){
 		rotation.unshift(fromRotation);
 		rotationCurve = new THREE.CatmullRomCurve3(rotation);
 	    } else if (rotation instanceof THREE.Vector3 && !fromRotation.isObject3D) {
@@ -248,6 +280,7 @@ class MOVE {
 	    easing: easing,
 	    pathCurve: pathCurve,
 	    rotationCurve: rotationCurve,
+	    prevPosObject: fromPos,
 	    prevLookAtObject: fromRotation
 	})
 
@@ -268,9 +301,11 @@ class MOVE {
 	var time = this.clock.getElapsedTime();
 
 	// Check if we are still waiting for the move to start
+	var newMoveStarted = false;
 	if (!nextMove.started){
 	    if (time >= nextMove.startTime){
 		nextMove.started = true;
+		newMoveStarted = true;
 		// We should start move now
 		if (this.log)
 		    console.log(this.log + ": Time " + time + " Move " + this.curMove + " started");
@@ -308,37 +343,89 @@ class MOVE {
 	    }
 	    
 	    // Change position and rotation
-	    if (nextMove.pathCurve)
-		this.obj.position.copy(nextMove.pathCurve.getPointAt(progress));
-
-	    if (nextMove.rotationCurve){
-		if (nextMove.rotationCurve.isObject3D){
+	    var pathCurve = nextMove.pathCurve;
+	    if (pathCurve){
+		if (pathCurve.isObject3D){
+		    const fromPos = this.obj.position;
+		    var toPos = pathCurve.getWorldPosition(new THREE.Vector3());
+		    toPos = fromPos.clone().lerp(toPos, 0.5);
+		    this.obj.position.copy(toPos);
+		} else {
+		    if (newMoveStarted && nextMove.prevPosObject && nextMove.prevPosObject.isObject3D){
+			const fromPos = this.obj.position;
+			if (pathCurve instanceof THREE.CatmullRomCurve3){
+			    const pathPoints = pathCurve.points;
+			    pathPoints[0] = fromPos;
+			    pathCurve = new THREE.CatmullRomCurve3(pathPoints);
+			} else if (pathCurve instanceof THREE.Vector3){
+			    pathCurve = new THREE.LineCurve3(fromPos, pathCurve);
+			} else if (pathCurve == MOVE.NO_CHANGE){
+			    pathCurve = new THREE.LineCurve3(fromPos, fromPos);
+			}
+			nextMove.pathCurve = pathCurve;
+		    }
+		    this.obj.position.copy(pathCurve.getPointAt(progress));
+		}
+	    }
+	    
+	    var rotationCurve = nextMove.rotationCurve;
+	    if (rotationCurve){
+		var rotationDone = false;
+		if (rotationCurve.isObject3D || typeof rotationCurve === 'function'){
 		    // If roateCurve is a 3D Object then we rotate to face that
 		    const objPos = new THREE.Vector3();
-		    nextMove.rotationCurve.getWorldPosition(objPos);
+
+		    if (typeof rotationCurve === 'function')
+			rotationCurve(objPos);
+		    else if (rotationCurve.isMorphCloud)
+		    	objPos.copy(rotationCurve.getCurrentMorphCenter());
+		    else
+		 	rotationCurve.getWorldPosition(objPos);
+
+		    const currentRotation = new THREE.Vector3().setFromEuler(this.obj.rotation);
 		    this.obj.lookAt(objPos);
-		} else if (nextMove.rotationCurve == MOVE.ROTATE_TO_TANGENT){
+		    var newRotation = new THREE.Vector3().setFromEuler(new THREE.Euler().setFromQuaternion(this.obj.quaternion));
+		    const rotationVector = newRotation.clone().sub(currentRotation);
+		    // "Normalise" the length to the closest way to get to the new rotation
+		    const rotationVectorSign = new THREE.Vector3(rotationVector.x < 0.0 ? -1:1, rotationVector.y < 0.0 ? -1:1, rotationVector.z < 0.0 ? -1:1);
+		    const rotateFactor = rotationVector.divide(rotationVectorSign.clone().multiplyScalar(2*Math.PI)).floor().multiply(rotationVectorSign);
+		    rotationVector.sub(rotateFactor.multiplyScalar(2*Math.PI));
+		    const rotationLength = rotationVector.length();
+		    const timeSinceLastRotation = nextMove.prevTime || nextMove.startTime;
+		    const deltaTime = time-timeSinceLastRotation;
+		    if (deltaTime == 0.0)
+			deltaTime = 0.0001;
+		    const rotationPerSecond = rotationLength/deltaTime;
+		    
+		    if (rotationPerSecond > Math.PI/4){
+		    	newRotation = currentRotation.add(rotationVector.multiplyScalar(deltaTime*(Math.PI/4)/rotationLength));
+	 		this.obj.rotation.setFromVector3(newRotation);
+		    }
+		} else if (rotationCurve == MOVE.ROTATE_TO_TANGENT){
 		    this.obj.rotation.setFromVector3(this.getRotationAngleCurve(nextMove.pathCurve, progress));
+		} else if (rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT){
+		    this.obj.rotation.setFromVector3(this.getRotationAngleCurve(nextMove.pathCurve, progress, true));
 		} else {
-		    var rotationCurve = nextMove.rotationCurve;
-		    if (nextMove.prevLookAtObject && nextMove.prevLookAtObject.isObject3D){
-			const fromRotation = new THREE.Vector3(this.obj.rotation.x, this.obj.rotation.y, this.obj.rotation.z);
-			if (rotationCurve.constructor === Array){
-			    rotationCurve.unshift(fromRotation);
-			    rotationCurve = new THREE.CatmullRomCurve3(rotationCurve);
-			} else if (rotationCurve instanceof THREE.Vector3) {
+		    if (newMoveStarted && nextMove.prevLookAtObject && nextMove.prevLookAtObject.isObject3D){
+			const fromRotation = new THREE.Vector3().setFromEuler(this.obj.rotation);
+			if (rotationCurve instanceof THREE.CatmullRomCurve3){
+			    const pathPoints = rotationCurve.points;
+			    pathPoints[0] = fromRotation;
+			    rotationCurve = new THREE.CatmullRomCurve3(pathPoints);
+			} else if (rotationCurve instanceof THREE.Vector3){
 			    rotationCurve = new THREE.LineCurve3(fromRotation, rotationCurve);
 			} else if (rotationCurve == MOVE.NO_CHANGE){
 			    rotationCurve = new THREE.LineCurve3(fromRotation, fromRotation);
 			}
 			nextMove.rotationCurve = rotationCurve;
-			nextMove.prevLookAtObject = null;
 		    }
-		    if (rotationCurve)
+
+		    if (rotationCurve && !rotationDone)
 			this.obj.rotation.setFromVector3(rotationCurve.getPointAt(progress));
 		}
 	    }
-	    
+	    nextMove.prevTime = time;
+   
 	    // Check if move is done
 	    if ((time-nextMove.startTime)<nextMove.toTime)
 		// Not done yet
@@ -353,6 +440,8 @@ class MOVE {
 		console.log(this.log + ": Time " + this.clock.getElapsedTime() + " Waiting for move " + this.curMove);
 	} else {
 	    this.clock.stop();
+	    if (this.onEnd)
+		this.onEnd(this);
 	}	
     }	
 }

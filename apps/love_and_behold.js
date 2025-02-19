@@ -7,7 +7,9 @@ import { StarGeometry } from "../libs/star_geometry.js";
 import { FBMGeometry } from "../libs/fbm_geometry.js";
 import { TextCloudGeometry } from "../libs/text_cloud_geometry.js";
 import { Audio2Texture } from "../libs/audio2texture.js";
-import { MOVE, CurveFunction } from "../libs//move.js";
+import { MOVE, CurveFunction } from "../libs/move.js";
+import { RandomPath } from "../libs/random_path.js";
+import { SeagullPointCloud } from "../libs/seagull.js";
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -22,6 +24,10 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { Water } from 'three/addons/objects/Water2.js';
 import 'jquery';
 
+
+const x_unit = new THREE.Vector3(1,0,0);
+const y_unit = new THREE.Vector3(0,1,0);
+const z_unit = new THREE.Vector3(0,0,1);
 
 /*********************************************************
 
@@ -74,6 +80,7 @@ function getCameraCenterDistance(){
 // create camera
 var camera = new THREE.PerspectiveCamera( camera_fov, window.innerWidth/window.innerHeight, 0.1, 20000 );
 camera.position.set(0.0,0.1,getCameraCenterDistance(window.innerWidth/window.innerHeight));
+const cameraMove = new MOVE(camera, true);
 
 // create a scene
 var scene = new THREE.Scene();
@@ -94,6 +101,10 @@ document.body.appendChild( renderer.domElement );
   if they should have bloom
   
 ***********************************************************/
+
+const enableAA = false;
+const enableBloom = true;
+
 
 const params = {
     threshold: 0,
@@ -149,7 +160,6 @@ mixPass.needsSwap = true;
 
 const outputPass = new OutputPass();
 
-
 const fxaaPass = new ShaderPass( FXAAShader );
 const pixelRatio = renderer.getPixelRatio();
 fxaaPass.material.uniforms[ 'resolution' ].value.x = 1 / ( window.innerWidth * pixelRatio );
@@ -158,17 +168,24 @@ fxaaPass.material.uniforms[ 'resolution' ].value.y = 1 / ( window.innerHeight * 
 
 const smaaPass = new SMAAPass( window.innerWidth * renderer.getPixelRatio(), window.innerHeight * renderer.getPixelRatio() );
 const finalComposer = new EffectComposer( renderer );
-if ( renderer.getContext() instanceof WebGL2RenderingContext ) {
+if ( renderer.getContext() instanceof WebGL2RenderingContext && enableAA ) {
     finalComposer.renderTarget1.samples = 8;
     finalComposer.renderTarget2.samples = 8;
     bloomComposer.renderTarget1.samples = 8;
     bloomComposer.renderTarget2.samples = 8;
 }
 finalComposer.addPass( renderScene );
-//finalComposer.addPass( smaaPass );
-finalComposer.addPass( mixPass );
+
+if (enableAA)
+    finalComposer.addPass( smaaPass );
+
+if (enableBloom)
+    finalComposer.addPass( mixPass );
+
 finalComposer.addPass( outputPass );
-//finalComposer.addPass( fxaaPass );
+
+if (enableAA)
+    finalComposer.addPass( fxaaPass );
 
 
 
@@ -203,14 +220,14 @@ function darkenNonBloomed( obj ) {
 	    }
 	    materials[ obj.uuid ] = obj.material;
 	    obj.material = darkMaterials[obj.uuid];
-	} else if ( (obj.isMesh || obj.isPoints || obj.isLine) &&  bloomLayer.test( obj.layers ) === false ) {
+	} else if ( obj.isMesh ) {
 	    darkMaterial.opacity = obj.material.opacity;
 	    darkMaterial.transparent = obj.material.transparent;
 	    darkMaterial.visible = obj.material.visible;
 	    materials[ obj.uuid ] = obj.material;
 	    var configUniform;
 	    if (obj.material.uniforms && obj.material.uniforms.config)
-	    configUniform = obj.material.uniforms.config;
+		configUniform = obj.material.uniforms.config;
 	    obj.material = darkMaterial;
 	    if (configUniform)
 		obj.material.uniforms = { config: configUniform};
@@ -294,9 +311,10 @@ scene.add( water );
 const controls = new OrbitControls( camera, renderer.domElement );
 controls.enableZoom = true;
 controls.enableDamping = true;
+controls.listenToKeyEvents( window );
 
 // Lights
-const amb_light = new THREE.AmbientLight( 0xffffff, 3 );
+const amb_light = new THREE.AmbientLight( 0xffffff, 7 );
 scene.add(amb_light);
 
 
@@ -312,6 +330,9 @@ var audioTexture;
 var cover_point_cloud;
 var fog_point_cloud;
 var fog_point_cloud_move;
+var seagull_point_cloud;
+var seagull_point_cloud_move;
+var seagull_point_cloud_run;
 var lyricsLineCloud;
 var cover_point_cloud_move;
 var lyricsEntries;
@@ -325,6 +346,8 @@ const coverTexture = new THREE.TextureLoader().load("../assets/love-and-behold-s
 const waterTexture = new THREE.TextureLoader().load("../assets/water.png");
 const waterCrestTexture = new THREE.TextureLoader().load("../assets/water-crest-depth.png");
 coverTexture.colorSpace = THREE.SRGBColorSpace;
+coverTexture.wrapS = THREE.RepeatWrapping;
+coverTexture.wrapT = THREE.RepeatWrapping;
 
 var audioLoaded = false;
 
@@ -334,12 +357,22 @@ async function makePointCloud(){
     //  Audio Texture for depth
     //
     const audioTexDescriptor = [
-	{ type: Audio2Texture.FREQ_SPECTRUM },
-	{ type: Audio2Texture.LEVEL},
-	{ type: Audio2Texture.TIME},
+	{ type: Audio2Texture.TIME, lowpassSmooth: true},
+	{ type: Audio2Texture.LEVEL, expand: false, startFreq:0, endFreq:24000, compressThreshold: 1.0, compressRatio: 8, lowpassSmooth: true, offsetFromAverage: true, clipLow: 0.01, clipHigh: 0.3},
+	{ type: Audio2Texture.LEVEL, expand: true, startFreq:0, endFreq:24000, compressThreshold: 1.0, compressRatio: 8, lowpassSmooth: false, offsetFromAverage: false},
     ];
     
-    audioTexture = new Audio2Texture("../assets/LoveAndBehold.mp3", 6*60, audioTexDescriptor, 1024, 1024, true, 0.7, 0, true, () => { audioLoaded = true;});
+    const folderKick = gui.addFolder( 'Level' );
+    folderKick.add( audioTexDescriptor[1], 'compressThreshold', 0, 5, 0.1 );
+    folderKick.add( audioTexDescriptor[1], 'compressRatio', 1, 16, 1 );
+    folderKick.add( audioTexDescriptor[1], 'startFreq', 0, 24000, 100);
+    folderKick.add( audioTexDescriptor[1], 'endFreq', 0, 24000, 100);
+    folderKick.add( audioTexDescriptor[1], 'expand');
+    folderKick.add( audioTexDescriptor[1], 'lowpassSmooth');
+    folderKick.add( audioTexDescriptor[1], 'offsetFromAverage');
+
+
+    audioTexture = new Audio2Texture("../assets/LoveAndBehold.mp3", 6*60, audioTexDescriptor, 512, 512, 0, true, () => { audioLoaded = true;});
 
     //
     //  Read lyrics
@@ -383,7 +416,7 @@ async function makePointCloud(){
 						    pos:new THREE.Vector3(text_geom_x_pos_move,0,0),
 						    pos_noise: 0.03,
 						    scale: new THREE.Vector3(1, 1, 1),
-						    displacementMap: [audioTexture.texture[2], audioTexture.texture[1]],
+						    displacementMap: [audioTexture.texture[0], audioTexture.texture[2]],
 						    displacementMapFlags: [0*morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + 1*morphPointCloud.DISPLACEMENT_MAP_ANGULAR_U_MAPPING +
 						    1*morphPointCloud.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER + 1*morphPointCloud.DISPLACEMENT_MAP_ENABLE,
 						    0*morphPointCloud.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER + morphPointCloud.DISPLACEMENT_MAP_ENABLE],
@@ -393,54 +426,69 @@ async function makePointCloud(){
 					      if (lyricsCloudDescriptor.length == lyricsEntries.length){
 						  var max_points = 0;
 						  lyricsCloudDescriptor.forEach( (d) => { max_points = Math.max(max_points, d.geometry.attributes.position.count);});
-						  lyricsLineCloud = new morphLineCloud(max_points, 0.01, 0xd0c0b0, 1.0,  '../assets/heart2.png');
+
+						  lyricsCloudDescriptor.push(
+						      ...[{ filename: "../assets/heart2.glb",
+							    scale: new THREE.Vector3(2, 2, 2),
+							    pos:new THREE.Vector3(0,0.1,0),
+							    tesselate : [0.02, 8],
+							    randPosOrder: false,
+							    pos_noise: 0.001,
+							    textureMapFlags: morphPointCloud.TEXTURE_MAP_USE_UV | morphPointCloud.TEXTURE_MAP_ENABLE,
+							    displacementMap: audioTexture.texture[1],
+							    displacementMapOffset: 0.1,
+							    displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_ENABLE | morphPointCloud.DISPLACEMENT_MAP_DISPLACE_FROM_CENTER,
+							    displacementMapScale: 1,
+							    color: 0xffffff
+							  },
+							  { filename: "../assets/water.png",
+							    pos:new THREE.Vector3(0,0.1,0),
+							    rotate:new THREE.Vector3(-Math.PI/2,0,0),
+							    width: 42,
+							    height: 42,
+							    colorCloud: true,
+							    randPosOrder: true,
+							    tileDim: 1,
+							    pos_noise: 5,
+							    point_space_ratio: 0.1,
+							    scaleTimePerlin: 0.5,
+							    displacementMap: [audioTexture.texture[2], null, waterCrestTexture],
+							    displacementMapFlags: [0*morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + 1*morphPointCloud.DISPLACEMENT_MAP_MULTIPLY + 1*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE + 1*morphPointCloud.DISPLACEMENT_MAP_ENABLE,
+										   0*morphPointCloud.DISPLACEMENT_MAP_ENABLE + 0*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE],
+							    displacementMapScale: [3, 2],
+							  },
+							  { filename: "../assets/paper_boat.glb",
+							    randPosOrder: true,
+							    pos:new THREE.Vector3(0,0.4,0),
+							    rotate:new THREE.Vector3(0,Math.PI/2,0),
+							    pos_noise: 0.01,
+							    scale: new THREE.Vector3(0.005, 0.25, 0.25),	
+							    tesselate : [0.03, 9],
+							    color: 0xffffff},
+	    						  { filename: "../assets/Love&Behold-SlideGuitar.mov",
+							    //colorCloud: true,
+							     color: 0xffffff,
+							    //num_points: 50000,
+							    randPosOrder: false,
+							    pos:new THREE.Vector3(3.5,-1,0),
+							    rotate:new THREE.Vector3(0,0, Math.PI/2),
+							    extrude_depth: 200, 
+							    pos_noise: 0.1,
+							     threshold: 100,
+							    scale: new THREE.Vector3(0.02,0.02,0.02),//1.5, 1.5, 1.5),
+							    textureMap: waterTexture,
+							    textureMapFlags: morphPointCloud.TEXTURE_MAP_ENABLE,
+							    displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_DISPLACE_DIR_RANDOM + morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE
+							  },
+							 ]);
+
+						  lyricsLineCloud = new morphLineCloud(max_points, 0.01, 0xd0c0b0, 1.0,  '../assets/heart2.png', null, null, null, true);
 						  lyricsLineCloud.load(lyricsCloudDescriptor, 5).then( obj => {
 						      obj.layers.enable( BLOOM_SCENE );
 						      scene.add(obj);
 						      lyrics_cloud_move = new MOVE(obj, true, "lyric_cloud");
 						      lyrics_cloud_rotate = new MOVE(obj, true, "lyric_cloud_rotate");
 						      lyrics_cloud_morph = new MOVE(obj, true, "lyric_cloud_morph");
-						      obj.load(   
-	    						  [{ filename: "../assets/water.png",
-							     pos:new THREE.Vector3(0,0.1,0),
-							     rotate:new THREE.Vector3(-Math.PI/2,0,0),
-							     width: 42,
-							     height: 42,
-							     colorCloud: true,
-							     randPosOrder: true,
-							     tileDim: 1,
-							     pos_noise: 5,
-							     point_space_ratio: 0.1,
-							     scaleTimePerlin: 0.5,
-							     displacementMap: [audioTexture.texture[1], null, waterCrestTexture],
-							     displacementMapFlags: [0*morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + 1*morphPointCloud.DISPLACEMENT_MAP_MULTIPLY + 1*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE + 1*morphPointCloud.DISPLACEMENT_MAP_ENABLE,
-										    0*morphPointCloud.DISPLACEMENT_MAP_ENABLE + 0*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE],
-							     displacementMapScale: [3, 2],
-							   },
-							   { filename: "../assets/paper_boat.glb",
-							     randPosOrder: true,
-							     pos:new THREE.Vector3(0,0.4,0),
-							     rotate:new THREE.Vector3(0,Math.PI/2,0),
-							     pos_noise: 0.01,
-							     scale: new THREE.Vector3(0.005, 0.25, 0.25),	
-							     tesselate : [0.02, 10],
-							     color: 0xffffff},
-	    						   { filename: "../assets/Love&Behold-SlideGuitar.mov",
-							     //colorCloud: true,
-							     color: 0xffffff,
-							     //num_points: 50000,
-							     randPosOrder: false,
-							     pos:new THREE.Vector3(3.5,-1,0),
-							     rotate:new THREE.Vector3(0,0, Math.PI/2),
-							     extrude_depth: 200, 
-							     pos_noise: 0.1,
-							     threshold: 100,
-							     scale: new THREE.Vector3(0.02,0.02,0.02),//1.5, 1.5, 1.5),
-							     textureMap: waterTexture,
-							     textureMapFlags: morphPointCloud.TEXTURE_MAP_ENABLE,
-							     displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_DISPLACE_DIR_RANDOM + morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE
-							   }]
-						      )
 						  });
 					      }
 						  
@@ -448,6 +496,21 @@ async function makePointCloud(){
 	    });
 	});
 
+    
+    //
+    //  Seagull
+    //
+    seagull_point_cloud = new SeagullPointCloud(0.02, '../assets/heart2.png', true);
+    seagull_point_cloud.load([]).then(
+	function (obj) {
+	    obj.layers.disable ( BLOOM_SCENE );
+	    obj.visible = false;
+	    scene.add(obj);
+	    seagull_point_cloud_move = new MOVE(obj, true, "seagull_point_cloud_move");
+	    seagull_point_cloud_run = new MOVE(obj, true, "seagull_point_cloud_run");
+	}
+    );
+    
     //
     //  Holon logo
     //
@@ -462,24 +525,42 @@ async function makePointCloud(){
     //
     //  Sphere
     //
-    const sphere_geom = new THREE.SphereGeometry( 15, cover_dim, cover_dim );
+    const sphere_geom = new THREE.SphereGeometry( 15, 2*cover_dim, 2*cover_dim, 0, Math.PI, 0, Math.PI );
     var position = sphere_geom.getAttribute("position");
     const normal = sphere_geom.getAttribute("normal");
+    const uv = new THREE.BufferAttribute(new Float32Array(position.count*2), 2);
     const vec3 = new THREE.Vector3();
+    
     for (let i=0; i<position.count; i++){
-	vec3.randomDirection().multiplyScalar(30*Math.pow(Math.random(),1/3));
-	position.setXYZ(i, vec3.x, vec3.y, vec3.z);
-	normal.setXYZ(i, vec3.x, vec3.y, vec3.z);
-    }
+	vec3.fromBufferAttribute(position, i);
+	var pointAngleFromAxis = z_unit.angleTo(vec3);
+	if (pointAngleFromAxis >= 3*Math.PI/2)
+	    pointAngleFromAxis = 2*Math.PI - pointAngleFromAxis;
+	else if (pointAngleFromAxis >= Math.PI)
+	    pointAngleFromAxis -= Math.PI;
+	else if (pointAngleFromAxis >= Math.PI/2)
+	    pointAngleFromAxis = Math.PI - pointAngleFromAxis;
 
+	const normAngle = 1.0; //pointAngleFromAxis/(Math.PI/2);
+	uv.setXY(i, (vec3.x*normAngle+15)/30, (vec3.y*normAngle+15)/30);
+	
+	//vec3.randomDirection().multiplyScalar(30*Math.pow(Math.random(),1/3));
+	//position.setXYZ(i, vec3.x, vec3.y, vec3.z);
+	//normal.setXYZ(i, vec3.x, vec3.y, vec3.z);
+    }
+    sphere_geom.setAttribute("uv", uv);
+    
     //
     //  Cylinder
     //
-    const cyl_geom = new THREE.CylinderGeometry( 15/2, 15/2, 5, cover_dim, cover_dim, true);
+    const cyl_geom = new THREE.CylinderGeometry( 25, 25, 10, cover_dim*2, cover_dim*2, true);
     position = cyl_geom.getAttribute("position");
     const fog_point_count = position.count;
     for (let i=0; i<position.count; i++){
-	const rand = Math.pow(Math.random(),1/3)*(0.75+0.25*Math.cos((position.getY(i)/2.5)*Math.PI/2));
+	var rand = Math.pow(Math.random(),1/3)*(0.75+0.25*Math.cos((position.getY(i)/2.5)*Math.PI/2));
+	const angle_xz = Math.atan2(position.getX(i), position.getZ(i));
+	const angle_xy = Math.atan2(position.getX(i), position.getY(i));
+	rand += 0.2*Math.cos(angle_xz*angle_xy*11) * 0.3*Math.cos((angle_xz+angle_xy)*3);
 	position.setXYZ(i, position.getX(i)*rand, position.getY(i)*rand, position.getZ(i)*rand);
     }
     
@@ -496,7 +577,7 @@ async function makePointCloud(){
 	  tileDim: 1,
 	  pos_noise: 5,
 	  point_space_ratio: 0.1,
-	  displacementMap: [audioTexture.texture[2], null],
+	  displacementMap: [audioTexture.texture[0], null],
 	  displacementMapFlags: [0*morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + 0*morphPointCloud.DISPLACEMENT_MAP_SWAP_UV + 0*morphPointCloud.DISPLACEMENT_MAP_ENABLE,
 				 0*morphPointCloud.DISPLACEMENT_MAP_ENABLE + 1*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE],
 	  displacementMapScale: [0.01, 1]
@@ -524,7 +605,7 @@ async function makePointCloud(){
 	  pos_noise: 5,
 	  point_space_ratio: 0.1,
 	  scaleTimePerlin: 0.5,
-	  displacementMap: [audioTexture.texture[1], null, waterCrestTexture],
+	  displacementMap: [audioTexture.texture[2], null, waterCrestTexture],
 	  displacementMapFlags: [0*morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + 1*morphPointCloud.DISPLACEMENT_MAP_MULTIPLY + 1*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE + 1*morphPointCloud.DISPLACEMENT_MAP_ENABLE,
 				 0*morphPointCloud.DISPLACEMENT_MAP_ENABLE + 0*morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE,
 				 0*morphPointCloud.DISPLACEMENT_MAP_ENABLE],
@@ -532,44 +613,52 @@ async function makePointCloud(){
 	  textureMap: waterCrestTexture,
 	  textureMapFlags: 0*morphPointCloud.TEXTURE_MAP_ENABLE + morphPointCloud.TEXTURE_MAP_BLEND_ADD
 	},
-	{ filename: "../assets/vintage_television-2.png",
-	  num_points : 16000,
+	{ filename: "../assets/television3.glb",
+	  scale: new THREE.Vector3(5, 5, 5),
+	  pos:new THREE.Vector3(0,1.0,0),
+	  tesselate : [0.02, 9],
 	  randPosOrder: true,
-	  threshold: 200,
-	  colorCloud: true,
-	  point_space_ratio: 0.1,
-	  extrude_depth: 3,
-	  pos:new THREE.Vector3(0,3,0),
-	  rotate:new THREE.Vector3(0,0,0),
-	  pos_noise: 0.1,
-	  width: 10,
-	  height: 7,
-	  displacementMap: televisionDepthTexture,
-	  displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_ENABLE,
-	  displacementMapScale: 1,
+	  pos_noise: 0.001,
+	  textureMapFlags: morphPointCloud.TEXTURE_MAP_USE_UV | morphPointCloud.TEXTURE_MAP_ENABLE,
+	  color: 0xffffff
 	},
-	
-	{ geometry: sphere_geom,
+//	{ filename: "../assets/desert_island.glb",
+//	  scale: new THREE.Vector3(10, 10, 10),
+//	  pos:new THREE.Vector3(0,3,2),
+//	  tesselate : [0.005, 10],
+//	  randPosOrder: true,
+//	  pos_noise: 0.001,
+//	  textureMapFlags: morphPointCloud.TEXTURE_MAP_USE_UV | morphPointCloud.TEXTURE_MAP_ENABLE,
+//	  color: 0xffffff
+//	},
+	{
+	  geometry: new THREE.PlaneGeometry( 40, 40 ),
+	  tesselate : [0.01, 18],
 	  randPosOrder: true,
-	  pos:new THREE.Vector3(0,0,0),
+	  pos:new THREE.Vector3(0,0,0.1),
+	  rotate:new THREE.Vector3(-Math.PI/2,0,0),
 	  pos_noise: 0.1,
 	  scale: new THREE.Vector3(1, 1, 1),
-	  textureMap: waterTexture,
-	  textureMapFlags: morphPointCloud.TEXTURE_MAP_ENABLE,
+	  textureMap: "../assets/well-all-be-stars-zoom.png", //auroraborealis.png",
+	  textureMapFlags: morphPointCloud.TEXTURE_MAP_ENABLE | morphPointCloud.TEXTURE_MAP_KALEIDO | morphPointCloud.TEXTURE_MAP_USE_UV,
+	  textureMapScale: new THREE.Vector2(0.1, 0.1),
+	  color: 0xffffff,
+	  scaleTimeFBM: 2,
 	  //textureMap: dekorTexture,
 	  //textureMapScale: new THREE.Vector2(1,1),
 	  //displacementMap: [audioTexture.texture[0], audioTexture.texture[2]],
 	  //displacementMapFlags: [morphPointCloud.DISPLACEMENT_MAP_LOG_U_MAPPING + morphPointCloud.DISPLACEMENT_MAP_ANGULAR_U_MAPPING + 1*morphPointCloud.DISPLACEMENT_MAP_ENABLE,
 	  //			 1*morphPointCloud.DISPLACEMENT_MAP_ENABLE + morphPointCloud.DISPLACEMENT_MAP_ANGULAR_U_MAPPING],
 	  //displacementMapScale: [1, 0.4],
-//	  color: function (i, obj) {
-//	      const colorAttr = obj.geometry.getAttribute('color');
-//	      return new THREE.Color(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i));
-//	  }
+	  //color: function (i, obj) {
+	  //    const colorAttr = obj.geometry.getAttribute('color');
+	  //    return new THREE.Color(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i));
+	  //}
 	},
-    ]
+    ];
 
-    cover_point_cloud = new morphPointCloud(cover_dim**2, 0.02, 0xffffe0, 1.0, '../assets/heart2.png');
+    
+    cover_point_cloud = new morphPointCloud(cover_dim**2, 0.02, 0xffffe0, 1.0, '../assets/heart2.png', null, null, null, true );
     cover_point_cloud.load(cover_pointcloud_descriptor, 1).then(
 	function (obj) {
 	    obj.layers.enable( BLOOM_SCENE );
@@ -591,9 +680,9 @@ async function makePointCloud(){
 		},
 		{ geometry: cyl_geom,
 		  randPosOrder: false,
-		  pos:new THREE.Vector3(0,3,0),
+		  pos:new THREE.Vector3(0,7,0),
 		  rotate:new THREE.Vector3(0,0,0),
-		  pos_noise: 1,
+		  pos_noise: 0,
 		  scale: new THREE.Vector3(1, 1, 1),
 		  color: 0xffffff,
 		  alpha: 1.0,
@@ -606,48 +695,43 @@ async function makePointCloud(){
 		  colorCloud: true,
 		  num_points: 64000,
 		  randPosOrder: false,
-		  pos:new THREE.Vector3(0,0,0),
+		  pos:new THREE.Vector3(0,0.5,2.5),
 		  rotate:new THREE.Vector3(0,0,0),
 		  pos_noise: 0.001,
 		  depth: 0.1,
 		  threshold: 100,
 		  normalise: true,
-		  scale: new THREE.Vector3(1, 1, 1),
-		  //color: function (i, obj) {
-		  //    return new THREE.Color().setHSL(25.0/255.0, 0.25*(cover_dim**2-i)/cover_dim**2, 0.25*(cover_dim**2-i)/cover_dim**2);// Math.random(), 0.5*Math.random());
-		  //}
-		}
+		  scale: new THREE.Vector3(0.25, 0.25, 0.25),
+		  textureMap: "../assets/glitch2.mp4",
+		  textureMapFlags: 1*morphPointCloud.TEXTURE_MAP_ENABLE + morphPointCloud.TEXTURE_MAP_BLEND_ADD,
+		},
 	    ];
 
 	    fog_point_cloud = new morphPointCloud(fog_point_count, 0.02, 0xffffff, 1.0, '../assets/heart2.png', null, null, null, true);
 	    fog_point_cloud.load(fog_pointcloud_descriptor, 0).then(
-		function (obj) {
-		    obj.layers.enable( BLOOM_SCENE );
-		    fog_point_cloud_move = new MOVE(obj, true, "fog_point_cloud");
-		    scene.add(obj);
+		function (obj2) {
+		    obj2.layers.enable( BLOOM_SCENE );
+		    fog_point_cloud_move = new MOVE(obj2, true, "fog_point_cloud");
+		    scene.add(obj2);
 		}
-	    );
-	    
+	    );	    	    
+
 	    
 	}
     );
+
+
 }
 
 
 
 
-const x_unit = new THREE.Vector3(1,0,0);
-const y_unit = new THREE.Vector3(0,1,0);
-const z_unit = new THREE.Vector3(0,0,1);
-
-const cameraMove = new MOVE(camera, true);
 var cover_depth_scale = {value: 1};
 var capturer;
 
 var morphEvent = null;
 var morphCoverCloud = false;
 var ready = false;
-
 
 var animate = async function () {
     const skyUniforms = sky.material.uniforms;
@@ -671,7 +755,7 @@ var animate = async function () {
 
     if (morphEvent !== null){
 	if (morphCoverCloud){
-	    cover_point_cloud.morphTo(morphEvent, TWEEN.Easing.Linear.None, 5000);
+	    fog_point_cloud.morphTo(morphEvent, TWEEN.Easing.Linear.None, 1000);
 	} else {
 	    const elmts = lyricsLineCloud.descriptor.length;
 	    lyricsLineCloud.morphTo(elmts-morphEvent, TWEEN.Easing.Circular.InOut, 5000);
@@ -688,20 +772,49 @@ var animate = async function () {
     MOVE.update();
     
     TWEEN.update();
-    scene.traverse( darkenNonBloomed );
-    bloomComposer.render();
-    scene.traverse( restoreMaterial );
-    finalComposer.render();
 
+    if (enableBloom){
+	scene.traverse( darkenNonBloomed );
+	bloomComposer.render();
+	scene.traverse( restoreMaterial );
+	finalComposer.render();
+    } else {
+	renderer.render( scene, camera );
+    }
+    
     requestAnimationFrame( animate );
     if (capturer){
 	capturer.capture(renderer.domElement);
     }
+
+    
+    
 };
 
 makePointCloud();
 
-function startCoreography(capture=false){
+function resetCoreography(){
+    camera.position.set(0.0,0.1,getCameraCenterDistance(window.innerWidth/window.innerHeight));
+    audioTexture.stop();
+    
+    fog_point_cloud.morphTo(0);
+    cover_point_cloud.morphTo(1);
+
+    lyricsLineCloud.morphTo(5);
+    lyrics_cloud_move.reset();
+    lyrics_cloud_rotate.reset();
+    lyrics_cloud_morph.reset();
+    lyricsLineCloud.position.set(0,0,0);
+    seagull_point_cloud_run.reset();
+    seagull_point_cloud_move.reset();
+    seagull_point_cloud.visible = false;
+    cover_point_cloud_move.reset();
+    fog_point_cloud_move.reset();
+    cameraMove.reset();
+}
+    
+
+function startCoreography(capture=false, startTime=0){
     const halfpi = Math.PI/2;
     const song_start_time = 1; 
 
@@ -712,48 +825,86 @@ function startCoreography(capture=false){
     const cameraMoveCurve = new CurveFunction(function (x){
 	return new THREE.Vector3().setFromSphericalCoords(camera_circle_radius+4*x, halfpi-Math.atan2(0.2, camera_circle_radius), x * 2 * Math.PI);
     })
+
+    function generateRockOnWavesCurve(periodsX=1, periodsY=1, periodsZ=1, angleX=0.1, angleY=0.1, angleZ=0.1){
+	return new CurveFunction(function (x){
+	    return new THREE.Vector3(angleX*Math.cos(2.0*Math.PI*periodsX*x), angleY*Math.sin(2*Math.PI*periodsY*x), angleZ*Math.sin(2*Math.PI*periodsZ*x));
+	});
+    }
+
+
+    const randomSeagullPath = new RandomPath({startPoint: new THREE.Vector3(-15,10,0),
+					      pointDistance: 1,
+					      deltaAngleYRandFunc: function(maxAngle) {
+						  var deltaAngle = this.prevDeltaAngle || 0;
+						  const changePath = Math.random() > 0.80;
+						  if (changePath)
+						      deltaAngle = this.deltaAngleRand(maxAngle);
+						  this.prevDeltaAngle = deltaAngle;
+						  return deltaAngle;
+					      },
+					      maxAngleXZ: Math.PI/16,
+					      maxAngleY: Math.PI/4,
+					      boundBox: new THREE.Box3(new THREE.Vector3(-15,5,-15), new THREE.Vector3(15,15,15))});
+
+    const seagullMoveCurve1 = randomSeagullPath.generatePointPath(93);
+    const seagullMoveCurve2 = randomSeagullPath.generatePointPath(120);
+
+    const seagullCameraPoints = seagullMoveCurve1.points.slice(-5).concat(seagullMoveCurve2.points.slice(0,-5));
+    
+    for (let i=0; i<seagullCameraPoints.length; i++){
+	seagullCameraPoints[i] = seagullCameraPoints[i].clone();
+	seagullCameraPoints[i].y += 1.5;
+    }
+
     
     cameraMove
-    // 4.2s: Initial circular camera movement 
+    // 4.2s: Move up above the paper boat
 	.to([new THREE.Vector3(0,camera_circle_radius, camera_circle_radius),
-	     new THREE.Vector3(0,camera_circle_radius, 0)], lyricsLineCloud, 10, 4.2, TWEEN.Easing.Quadratic.Out)
+	     new THREE.Vector3(0,camera_circle_radius, 0.001)], lyricsLineCloud, 10, 4.2, TWEEN.Easing.Quadratic.Out)
+    // Move down towards boat
 	.to(new THREE.Vector3(0, 2, 0), new THREE.Vector3(-Math.PI/2, 0, 2*Math.PI), 10, 14.2, TWEEN.Easing.Quadratic.In)
+    // Move in circles while lyrics pops up
 	.to(new THREE.Vector3(0, startPos.y, camera_circle_radius), lyricsLineCloud, 5, 24.2, TWEEN.Easing.Quadratic.Out)
 	.to(cameraMoveCurve, lyricsLineCloud, 115.8, 29.2)
-	.to(new THREE.Vector3(0, startPos.y, camera_circle_radius), MOVE.NO_MOVE, 60, 145);
+    // Ronny and TV
+	.to(new THREE.Vector3(0, 0.5, 5), cover_point_cloud, 120, 145)
+    // Follow seagull
+	.to(new THREE.CatmullRomCurve3(seagullCameraPoints), seagull_point_cloud.getWorldPosition.bind(seagull_point_cloud), 120, 358);
     
     lyrics_cloud_morph
     // 3s: Morph to paper boat
 	.run( (obj) => { obj.morphTo(obj.descriptor.length-2, TWEEN.Easing.Circular.InOut, 5000)}, 4);
     
     lyrics_cloud_rotate
-	.to( null, new THREE.Vector3(0.1, -0.5, -0.1),   2, 7.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(0.2, 0.3, 0.1),     2, 9.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(-0.2, -0.5, -0.1),  2, 11.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(0.2, 0.1, 0.1),     2, 13.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(-0.2, -0.7, -0.1),  2, 15.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(0.2, -0.1, 0.1),    2, 17.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(-0.2, -0.9, -0.1),  2, 19.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(0.2, -0.3, 0.1),    2, 21.5, TWEEN.Easing.Sinusoidal.InOut)
-	.to( null, new THREE.Vector3(-0.2, -1.1, -0.1),  2, 23.5, TWEEN.Easing.Sinusoidal.InOut)
+    // Paper boat rolling in waves
+        .to( null, generateRockOnWavesCurve(3, 1, 2.9, 0.2, 0.5, 0.1), 11.8, 14.2)//16, 7.5)
+    // Rotate towards camera while lyrics are changing
 	.to( null, camera, 71-25, 26+song_start_time-1)
+    // Stop rotating while guitar comes up
 	.to( null,  new THREE.Vector3(0,0,0), 5, song_start_time+116)
-	.to( null, camera, 80, song_start_time+140);
-
+    // Rotate towards camera while lyrics are changing
+	.to( null, camera, 80, song_start_time+140)
+	.to( null, new THREE.Vector3(0,0,0), 5, song_start_time+265);
     
     // Morph to all the lyrics
     lyricsEntries.forEach( (entry, i) => {
 	if (i==12){
 	    // Morph to slide guitar morph
 	    lyrics_cloud_move
-		.to( new THREE.Vector3(0, 0, 0), null, 1, song_start_time+71)
+		.to( new THREE.Vector3(0, 0, 0), null, 1, song_start_time+71);
 	    lyrics_cloud_morph
-		.run( (obj) => { obj.morphTo(obj.descriptor.length-1, TWEEN.Easing.Circular.InOut, 1000)}, song_start_time+71)
+		.run( (obj) => { obj.morphTo(obj.descriptor.length-1, TWEEN.Easing.Circular.InOut, 1000)}, song_start_time+71);
 	    lyrics_cloud_morph
-		.run( (obj) => { obj.morphTo(obj.descriptor.length-3, TWEEN.Easing.Circular.InOut, 5000)}, song_start_time+116)
+		.run( (obj) => { obj.morphTo(obj.descriptor.length-3, TWEEN.Easing.Circular.InOut, 5000)}, song_start_time+116);
 	    lyrics_cloud_move
-		.to( new THREE.Vector3(0,0,0), null, 5, song_start_time+116, TWEEN.Easing.Circular.InOut)
-	    
+		.to( new THREE.Vector3(0,0,0), null, 5, song_start_time+116, TWEEN.Easing.Circular.InOut);
+	} else if (i==24){
+	    // Morph to heart
+	    lyrics_cloud_morph
+		.run( (obj) => { obj.morphTo(obj.descriptor.length-4, TWEEN.Easing.Circular.InOut, 5000)}, song_start_time+265);
+	    lyrics_cloud_move
+		.to( new THREE.Vector3(0,1,0), null, 5, song_start_time+265, TWEEN.Easing.Circular.InOut);
 	}
 	var time = entry[0].split(":");
 	time = Number(time[0])*60 + Number(time[1]); 
@@ -770,26 +921,45 @@ function startCoreography(capture=false){
 	    .to( newPos, null, 2, time+song_start_time-2, TWEEN.Easing.Circular.InOut)
 	
     });
-	
+
+    
     cover_point_cloud_move
     // 1s: Start Audio
-	.run( (obj) => { audioTexture.start(capture)}, song_start_time)
+	.run( (obj) => { audioTexture.start(capture, startTime)}, song_start_time)
     // 4s: Morph to water
 	.run( (obj) => { obj.morphTo(2, TWEEN.Easing.Circular.InOut, 5000)}, 9.2)
+    // Add water crest around guitar
 	.run( (obj) => {
 	    obj.descriptor[2].displacementMapFlags[2] |= morphPointCloud.DISPLACEMENT_MAP_ENABLE;
 	    obj.descriptor[2].textureMapFlags |= morphPointCloud.TEXTURE_MAP_ENABLE;
 	    obj.addFromDescriptor(obj.descriptor[2], 2);
 	}, song_start_time + 71)
-	.run( (obj) => { obj.morphTo(3, TWEEN.Easing.Circular.InOut, 25000)}, 120);
+    // Morph to TV
+	.run( (obj) => { obj.morphTo(3, TWEEN.Easing.Circular.InOut, 25000)}, 120)
+	.to( MOVE.NO_CHANGE, generateRockOnWavesCurve(9.6*3, 2*3, 10*3, 0.03, 0.01, 0.03), 120, 140)
+    // Morph to cover
+	.run( (obj) => { obj.morphTo(0, TWEEN.Easing.Circular.InOut, 5000)}, song_start_time + 260);
 
     fog_point_cloud_move
     // 4s: Morph to fog
 	.run( (obj) => { obj.morphTo(1, TWEEN.Easing.Circular.InOut, 5000)}, 4)
+    // Morph to video of singing
 	.run( (obj) => { obj.morphTo(2, TWEEN.Easing.Circular.InOut, 5000,
 				     null, () => {obj.layers.disable(BLOOM_SCENE);})}, 140)
-	.to(new THREE.Vector3(0, 4, 0), null, 5 , 140.1);
+    // Start rocking motion on waves - same as TV
+	.to( MOVE.NO_CHANGE, generateRockOnWavesCurve(9.6*3, 2*3, 10*3, 0.03, 0.01, 0.03), 120, 140)
+    // Morph back to fog
+	.run( (obj) => { obj.morphTo(1, TWEEN.Easing.Circular.InOut, 5000, () => {obj.layers.enable(BLOOM_SCENE);})}, 260);
 
+
+    
+    seagull_point_cloud_run
+	.run( (obj) => {obj.visible=true; obj.startFlap()}, song_start_time+265);
+    
+    seagull_point_cloud_move
+	.to(seagullMoveCurve1, MOVE.ROTATE_TO_TANGENT_AND_TILT, 93, song_start_time+265)
+	.to(seagullMoveCurve2, MOVE.ROTATE_TO_TANGENT_AND_TILT, 120, song_start_time+265+93);
+	    
     if (capture){
 	capturer = new CCapture( {
 	    format: "webm",
@@ -802,15 +972,24 @@ function startCoreography(capture=false){
 	capturer.start();
     }
 
-    lyrics_cloud_move.start();
-    lyrics_cloud_rotate.start();
-    lyrics_cloud_morph.start();
-    cover_point_cloud_move.start();
-    fog_point_cloud_move.start();
-    cameraMove.start();
+    
+    lyrics_cloud_move.start(startTime);
+    lyrics_cloud_rotate.start(startTime);
+    lyrics_cloud_morph.start(startTime);
+    cover_point_cloud_move.start(startTime);
+    fog_point_cloud_move.start(startTime);
+    cameraMove.start(startTime);
+    seagull_point_cloud_run.start(startTime);
+    seagull_point_cloud_move.start(startTime);
 }
 
 animate();
+
+
+const playControl = {startTime: 0};
+
+const control = gui.addFolder( 'Control' );
+control.add( playControl, 'startTime', 0, 1020, 1 )
 
 document.addEventListener("keypress",
 			  function (event) {
@@ -818,9 +997,11 @@ document.addEventListener("keypress",
 				  morphEvent = Number(event.key);
 				  morphCoverCloud = event.ctrlKey;
 			      } else if (event.key == 'p'){
-				  startCoreography(false);
+				  startCoreography(false, playControl.startTime);
 			      } else if (event.key == 'r'){
 				  startCoreography(true);
+			      } else if (event.key == 'q'){
+				  resetCoreography();
 			      } else if (event.key == 'm'){
 				  audioTexture.start(false)
 			      } else if (event.key == 'c'){

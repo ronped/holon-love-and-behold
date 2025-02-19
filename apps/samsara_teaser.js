@@ -52,7 +52,7 @@ camera.position.set(0.0,0.0,getCameraCenterDistance(window.innerWidth/window.inn
 var scene = new THREE.Scene();
 
 // create renderer
-var renderer = new THREE.WebGLRenderer();
+var renderer = new THREE.WebGLRenderer({preserveDrawingBuffer:true, alpha:true});
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
 renderer.setSize( window.innerWidth, window.innerHeight );
@@ -60,7 +60,6 @@ renderer.setPixelRatio( window.devicePixelRatio );
 renderer.toneMappingExposure = 1;
 renderer.outputEncoding = THREE.sRGBEncoding;
 document.body.appendChild( renderer.domElement );
-
 
 
 
@@ -86,12 +85,16 @@ const BLOOM_SCENE = 1;
 const bloomLayer = new THREE.Layers();
 bloomLayer.set( BLOOM_SCENE );
 
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85, false);
 bloomPass.threshold = params.threshold;
 bloomPass.strength = params.strength;
 bloomPass.radius = params.radius;
 
-const bloomComposer = new EffectComposer(renderer);
+const size = renderer.getSize( new THREE.Vector2() );
+const renderTarget = new THREE.WebGLRenderTarget( size.width * renderer.getPixelRatio(), size.height * renderer.getPixelRatio(), { format: THREE.RGBAFormat, type: THREE.HalfFloatType } );
+renderTarget.texture.name = 'EffectComposer.bloom';
+
+const bloomComposer = new EffectComposer(renderer, renderTarget);
 bloomComposer.renderToScreen = false;
 bloomComposer.addPass(renderScene);
 bloomComposer.addPass(bloomPass);
@@ -115,7 +118,11 @@ const mixPass = new ShaderPass(
 
 			void main() {
 
-				gl_FragColor = ( texture2D( baseTexture, vUv ) + vec4( 1.0 ) * texture2D( bloomTexture, vUv ) );
+                              vec4 base_color = texture2D(baseTexture, vUv);
+                              vec4 bloom_color = texture2D(bloomTexture, vUv);
+
+                              float lum = 0.21 * bloom_color.r + 0.71 * bloom_color.g + 0.07 * bloom_color.b;
+                              gl_FragColor = vec4(base_color.rgb + bloom_color.rgb, max(base_color.a, lum));
 
 			}`,
 	defines: {}
@@ -133,7 +140,9 @@ fxaaPass.material.uniforms[ 'resolution' ].value.y = 1 / ( window.innerHeight * 
 
 
 const smaaPass = new SMAAPass( window.innerWidth * renderer.getPixelRatio(), window.innerHeight * renderer.getPixelRatio() );
-const finalComposer = new EffectComposer( renderer );
+const renderTargetFinal = new THREE.WebGLRenderTarget( size.width * renderer.getPixelRatio(), size.height * renderer.getPixelRatio(), { format: THREE.RGBAFormat, type: THREE.HalfFloatType } );
+renderTargetFinal.texture.name = 'EffectComposer.final';
+const finalComposer = new EffectComposer( renderer, renderTargetFinal );
 if ( renderer.getContext() instanceof WebGL2RenderingContext ) {
     finalComposer.renderTarget1.samples = 8;
     finalComposer.renderTarget2.samples = 8;
@@ -313,7 +322,7 @@ async function makePointCloud(){
 	      const colorAttr = obj.geometry.getAttribute('color');
 	      return new THREE.Color(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i));
 	  },
-	  displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE,
+	  //displacementMapFlags: morphPointCloud.DISPLACEMENT_MAP_ADD_PERLIN_NOISE,
 	},
 	{ geometry: text_geom,
 	  randPosOrder: true,
@@ -398,7 +407,18 @@ async function makePointCloud(){
 }
 
 
+function createImage(saveAsFileName) {
 
+    var canvas = renderer.domElement;
+    var url = canvas.toDataURL("image/png", 1);
+    var link = document.createElement('a');
+
+    link.setAttribute('href', url);
+    link.setAttribute('target', '_blank');
+    link.setAttribute('download', saveAsFileName);
+
+    link.click();
+}
 
 const x_unit = new THREE.Vector3(1,0,0);
 const y_unit = new THREE.Vector3(0,1,0);
@@ -594,6 +614,8 @@ document.addEventListener("keypress",
 				  startCoreography(false);
 			      } else if (event.key == 'r'){
 				  startCoreography(true);
+			      } else if (event.key == 'i'){
+				  createImage("screenshot.png");
 			      } else if (event.key == 'c'){
 				  capturer = new CCapture( {
 				      format: "webm",

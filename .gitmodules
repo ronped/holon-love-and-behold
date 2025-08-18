@@ -1,0 +1,12 @@
+[submodule "external_modules/webfft"]
+	path = external_modules/webfft
+	url = https://github.com/IQEngine/WebFFT.git
+[submodule "external_modules/three.js"]
+	path = external_modules/three.js
+	url = https://github.com/ronped/three.js-patched.git
+[submodule "external_modules/ccapture"]
+	path = external_modules/ccapture
+	url = https://github.com/ronped/ccapture-mod.git
+[submodule "external_modules/seedrandom"]
+	path = external_modules/seedrandom
+	url = https://github.com/davidbau/seedrandom.git

@@ -45,7 +45,23 @@ class RandomPath {
 	// Contract bounding box
 	this.marginBoundBox = this.boundBox.clone().expandByVector(new THREE.Vector3(-turnMarginXZ, -turnMarginY, -turnMarginXZ));
     }
-    
+
+    static getLineObject(path, numPoints=null, color=0xff0000){
+        const geometry = new THREE.BufferGeometry().setFromPoints( numPoints==null ? path.points : path.getSpacedPoints(numPoints));
+        const material = new THREE.LineBasicMaterial( { color: color } );
+
+        // Create the final object
+        return new THREE.Line( geometry, material );
+    }
+
+    static getPointsObject(path, numPoints=null, color=0xff0000){
+        const geometry = new THREE.BufferGeometry().setFromPoints( numPoints==null ? path.points : path.getSpacedPoints(numPoints) );
+        const material = new THREE.PointsMaterial( { size: 0.05, color: color } );
+
+        // Create the final object
+        return new THREE.Points( geometry, material );
+    }
+
     generatePointPath(numPoints){
 	const points = [this.curPoint];
 	

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js';
-
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 class TextCloudGeometry extends TextGeometry {
 
@@ -29,17 +29,53 @@ class TextCloudGeometry extends TextGeometry {
 						    midpoint_array, recursions-1);
     }
 
-    constructor(text, params, pointsize, path=null){
-	super(text, params);
-	this.type = 'TextCloudGeometry';
 
+    makeNewGeomFromGroup(group){
+        var destNumVerts = group.count;
+        
+	var newBufGeom = new THREE.BufferGeometry();
+	var newPosition = new Float32Array( destNumVerts * 3 );
+        var origVerts = this.getAttribute( 'position' ).array;
+        for ( var iv = 0; iv < destNumVerts; iv ++ ) {
+	    var indexOrig = 3 * ( group.start + iv );
+	    var indexDest = 3 * iv;
+            
+	    newPosition[ indexDest ] = origVerts[ indexOrig ];
+	    newPosition[ indexDest + 1 ] = origVerts[ indexOrig + 1 ];
+	    newPosition[ indexDest + 2 ] = origVerts[ indexOrig + 2 ];
+	}
+
+        newBufGeom.setAttribute( 'position', new THREE.Float32BufferAttribute( newPosition, 3 ) );
+        return newBufGeom;
+    }
+    
+    constructor(text, params={}, path=null, perGroupTesselate=null){
+	super(text, params);
+	this.deleteAttribute("uv");
+	this.deleteAttribute("color");
+        if (perGroupTesselate){
+            const groupGeom = new Array();
+            this.groups.forEach( (x, i) => {
+                const geom = this.makeNewGeomFromGroup(x);
+                const tesselate = perGroupTesselate(i, this.groups.length);
+                const tessellateModifier = new TessellateModifier(tesselate[0], tesselate[1]);
+                groupGeom.push(tessellateModifier.modify(geom));
+            });
+            this.copy(mergeGeometries(groupGeom));
+        } else {
+	    this.groups = [];
+	    if (params.size !== undefined){
+	        const tessellateModifier = new TessellateModifier(params.size/10, 6);
+	        this.copy(tessellateModifier.modify(this));
+	    }
+        }
+	this.setAttribute("normal", this.getAttribute("position").clone() );
+	this.type = 'TextCloudGeometry';
+        this.name = text;
+        
 	if (path)
 	    this.followPath(path);
 
-	this.setAttribute("normal", this.getAttribute("position").clone() );
-	this.deleteAttribute("uv");
-	this.deleteAttribute("color");
-	this.groups = null;
 	this.buffersNeedUpdate = true;
     }
 
@@ -50,7 +86,6 @@ class TextCloudGeometry extends TextGeometry {
 	const scale_y = path.getLength()/max_x;
 	const pos_buf = this.getAttribute("position");
 	
-	var pointsPerArea = 0;
 	const path_point = new THREE.Vector3();
 	const point = new THREE.Vector3();
 	const tangent = new THREE.Vector3();
@@ -70,19 +105,24 @@ class TextCloudGeometry extends TextGeometry {
     }
     
 
-    static async factory(text, fontfile, pointsize, params, curve=null){ 
-	var loaderPromise = new Promise(function(resolve, reject) {
+    static async factory(text, fontfile, params, curve=null, perGroupTesselate=null){ 
+	return new Promise(function(resolve, reject) {
 	    const font = new FontLoader().load(fontfile, (font) => {
 		params.font = font;
-		var text_geometry = new TextCloudGeometry(text, params, pointsize, curve);
-		const tessellateModifier = new TessellateModifier(params.size/10, 6);
-		text_geometry = tessellateModifier.modify( text_geometry );
-		
-		resolve(text_geometry);
+		var curveArray = curve;
+		if (!curve || curve.constructor !== Array)
+		    curveArray = [curve];
+		const text_geometries = [];
+		curveArray.forEach( (x) => {
+		    text_geometries.push(new TextCloudGeometry(text, params, x, perGroupTesselate));
+		});
+
+		if (!curve || curve.constructor !== Array)
+		    resolve(text_geometries[0]);
+		else
+		    resolve(text_geometries);
 	    })
 	});
-
-	return loaderPromise;
     }
 
 }

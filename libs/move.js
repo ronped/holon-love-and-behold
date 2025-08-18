@@ -8,8 +8,14 @@ class CurveFunction {
     }
 
     getTangentAt(point){
-	const p1 = this.getPointAt(point);
-	const p0 = this.getPointAt(point-0.001);
+        var p0, p1;
+        if (point < 0.001){
+            p1 = this.getPointAt(point+0.001);
+	    p0 = this.getPointAt(point);
+        } else {
+            p1 = this.getPointAt(point);
+	    p0 = this.getPointAt(point-0.001);
+        }
 	return p1.sub(p0);
     }
 
@@ -17,11 +23,38 @@ class CurveFunction {
 	return this.func(point);
     }
 
+    getSpacedPoints(divisions){
+        const pointArray = [];
+        for (let i=0; i<=divisions; i++){
+	    pointArray[i] = this.getPointAt(i/divisions);
+        }
+        return pointArray;
+    }
+
+
+    getLineObject(divisions, color=0xff0000){
+        const geometry = new THREE.BufferGeometry().setFromPoints( this.getSpacedPoints(divisions) );
+        const material = new THREE.LineBasicMaterial( { color: color } );
+
+        // Create the final object
+        return new THREE.Line( geometry, material );
+    }
+    
+    getPointsObject(divisions, color=0xff0000){
+        const geometry = new THREE.BufferGeometry().setFromPoints( this.getSpacedPoints(divisions) );
+        const material = new THREE.PointsMaterial( { size: 0.05, color: color } );
+
+        // Create the final object
+        return new THREE.Points( geometry, material );
+    }
+
+
 }
 
-const _vZero = new THREE.Vector3(0,0,0);
-const _m1 = new THREE.Matrix4();
-const _euler = new THREE.Euler();
+const _vZero = /*@__PURE__*/ new THREE.Vector3(0,0,0);
+const _m1 = /*@__PURE__*/ new THREE.Matrix4();
+const _euler = /*@__PURE__*/ new THREE.Euler();
+const _q1 = /*@__PURE__*/ new THREE.Quaternion();
 
 class MOVE {
 
@@ -32,6 +65,24 @@ class MOVE {
 	})
     }	
     
+    static reset(){
+	MOVE.allMoves.forEach( (obj) => {
+	    obj.reset();
+	})
+    }	
+
+    static stop(){
+	MOVE.allMoves.forEach( (obj) => {
+	    obj.stop();
+	})
+    }	
+
+    static start(startTime=0){
+	MOVE.allMoves.forEach( (obj) => {
+	    obj.start(startTime);
+	})
+    }	
+
     constructor(obj, absoluteStartTime=false, log=false, onEnd = null){
 	this.obj = obj;
 	this.clock = new THREE.Clock(false);
@@ -46,6 +97,12 @@ class MOVE {
 	MOVE.allMoves.push(this);
     }
 
+    // Release the move object from the allMoves list
+    release(){
+        MOVE.allMoves = MOVE.allMoves.filter(item => item !== this);
+    }
+    
+    
     // Get absolute end time of move back in the queue
     getMoveEndTime(movesBack=0){
 	var endTime = 0;
@@ -136,24 +193,72 @@ class MOVE {
     }
 
 
-    getRotationAngleCurve(curve, point, tilt=false){
-	const tangent = curve.getTangentAt(point);
+    limitRotationSpeed(targetDirection, curDirection, maxRotationSpeed, timeSinceLastUpdate){
+        const angleFromCur = curDirection.angleTo(targetDirection);
+        
+	// Check if we need to limit
+	const limit = angleFromCur > (maxRotationSpeed/30);
+
+	if (limit){
+	    // Find time since last rotation
+	    if (timeSinceLastUpdate == 0.0)
+	        timeSinceLastUpdate = 1/30;
+	    // Assuming a catch up speed of pi/4 radians/s unless we have explicitly given
+	    // the catchup speed to the to() command
+	    const catchUpTime = angleFromCur/maxRotationSpeed;
+            // If we are within the speed limit then do nothing
+	    if (timeSinceLastUpdate < catchUpTime){
+		const deltaAngle = (timeSinceLastUpdate/catchUpTime)*angleFromCur;
+		// Get the normal vector to the plane that current and target direction
+		// vectors lie in and use as a rotation axis
+		const rotationAxis = curDirection.clone().cross(targetDirection);
+		const newDirVector = curDirection.applyAxisAngle(rotationAxis.normalize(), deltaAngle);
+		return newDirVector;
+	    } 
+	} 
+        return targetDirection;
+    }
+    
+    getRotationAngleCurve(curve, point, tilt=false, roll=false, maxRotationSpeed=null, timeSinceLastUpdate=0, tiltOffset=0, rollSpeed=1){
+        var tangent;
+	if (curve instanceof THREE.Curve || curve instanceof CurveFunction ){
+	    tangent = curve.getTangentAt(point);
+	    this.objPrevTangent = this.objPrevTangent || curve.getTangentAt(0);
+        } else {
+            tangent = this.obj.position.clone().sub(this.prevPos).normalize();
+	    this.objPrevTangent = this.objPrevTangent || tangent;
+        }
+        
+        tangent.lerpVectors(this.objPrevTangent, tangent, 0.5);
+        if (maxRotationSpeed)
+            tangent=this.limitRotationSpeed(tangent, this.objPrevTangent, maxRotationSpeed, timeSinceLastUpdate);
+        tangent.normalize();
+        const objPrevTangent = this.objPrevTangent.clone();
+        this.objPrevTangent = tangent;
 	var up = this.obj.up;
 	if (tilt){
-	    this.objPrevTangent = this.objPrevTangent || curve.getTangentAt(0);
-	    const tangentCross = this.objPrevTangent.clone().cross(tangent);
-	    const rotateLeft = tangentCross.angleTo(up) < Math.PI/4;
-	    const tangentDeltaAngle = this.objPrevTangent.angleTo(tangent);
-	    this.objTiltAngleBuffer.push(20*(rotateLeft ? tangentDeltaAngle : -tangentDeltaAngle));
+            tangent.y=0;
+            objPrevTangent.y=0;
+            const tangentCross = objPrevTangent.clone().cross(tangent);
+	    const rotateLeft = tangentCross.y > 0;
+
+	    const tangentDeltaAngle = objPrevTangent.angleTo(tangent);
+	    this.objTiltAngleBuffer.push(10*(rotateLeft ? Math.abs(tangentDeltaAngle) : -Math.abs(tangentDeltaAngle)));
 	    if (this.objTiltAngleBuffer.length > 10)
 		this.objTiltAngleBuffer.shift();
 	    var objTiltAngle = this.objTiltAngleBuffer.reduce(
-		(accumulator, currentValue) => accumulator + currentValue/this.objTiltAngleBuffer.length,
+		(accumulator, currentValue, i) => accumulator + currentValue/this.objTiltAngleBuffer.length,
 		0);
+
+            objTiltAngle += tiltOffset;
 	    objTiltAngle = Math.max(-Math.PI/4, Math.min(objTiltAngle, Math.PI/4));
-	    up = up.clone().applyAxisAngle(new THREE.Vector3(0,0,1), objTiltAngle);
-	    this.objPrevTangent = tangent;
-	}
+            // Tilt the up vector by rotating around the tangent axis
+	    up = up.clone().applyAxisAngle(tangent.clone().negate(), objTiltAngle);
+	} else if(roll){
+            this.rollAngle = this.rollAngle != null ? this.rollAngle + timeSinceLastUpdate*rollSpeed : 0; 
+	    up = up.clone().applyAxisAngle(tangent.clone().negate(), this.rollAngle);
+        }
+
 	
 	// If this is a camera object then the view direction
 	// is in the opposite direction of the object direction
@@ -165,13 +270,18 @@ class MOVE {
 	    _m1.lookAt(tangent, _vZero, up);
 	}
 
-	return new THREE.Vector3().setFromEuler(_euler.setFromRotationMatrix(_m1, "XYZ"));
+        const rotation = new THREE.Vector3().setFromEuler(_euler.setFromRotationMatrix(_m1, "XYZ"));
+
+	return rotation
     }
 
 
     static NO_CHANGE = 1;
     static ROTATE_TO_TANGENT = 2;
     static ROTATE_TO_TANGENT_AND_TILT = 3;
+    static ROTATE_TO_TANGENT_AND_ROLL = 4;
+
+    static CATCH_UP_LINEAR = -1;
 
     getCurPosFromQueue(){
 	if (this.moveQueue.length>0){
@@ -212,11 +322,13 @@ class MOVE {
 	    if (queueElmt){
 		if (queueElmt.rotationCurve && queueElmt.rotationCurve.isObject3D || queueElmt.rotationCurve instanceof THREE.Vector3)
 		    return queueElmt.rotationCurve;
-		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT)
+		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT && (queueElmt.pathCurve instanceof THREE.Curve || queueElmt.pathCurve instanceof CurveFunction) )
 		    return this.getRotationAngleCurve(queueElmt.pathCurve, 1.0);
-		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT)
+		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT && (queueElmt.pathCurve instanceof THREE.Curve || queueElmt.pathCurve instanceof CurveFunction) )
 		    return this.getRotationAngleCurve(queueElmt.pathCurve, 1.0, true);
-		else if (queueElmt.rotationCurve)
+		else if (queueElmt.rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_ROLL && (queueElmt.pathCurve instanceof THREE.Curve || queueElmt.pathCurve instanceof CurveFunction) )
+		    return this.getRotationAngleCurve(queueElmt.pathCurve, 1.0, false, true);
+		else if (queueElmt.rotationCurve && (queueElmt.rotationCurve instanceof THREE.Curve || queueElmt.rotationCurve instanceof CurveFunction))
 		    return queueElmt.rotationCurve.getPointAt(1.0);
 		else
 		    return null;
@@ -227,7 +339,7 @@ class MOVE {
 	return new THREE.Vector3().setFromEuler(this.obj.rotation);
     }
 
-    to(pos, rotation=null, time=0, startTime=0,  easing=null){
+    to(pos, rotation=null, time=0, startTime=0, easing=null, posCatchUpSpeed=null, rotationCatchUpSpeed=null, tiltOffset=0, useLookAtObjUp=false, rollSpeed=1){
 	var pathCurve, rotationCurve;
 	const fromPos = this.getCurPosFromQueue();
 	const fromRotation = this.getCurRotationFromQueue(); 
@@ -251,9 +363,9 @@ class MOVE {
 	    if (rotation.constructor === Array){
 		rotation.unshift(fromRotation);
 		rotationCurve = new THREE.CatmullRomCurve3(rotation);
-	    } else if (rotation instanceof THREE.Vector3 && !fromRotation.isObject3D) {
+	    } else if (rotation instanceof THREE.Vector3 && fromRotation && !fromRotation.isObject3D) {
 		rotationCurve = new THREE.LineCurve3(fromRotation, rotation);
-	    } else if (rotation == MOVE.NO_CHANGE && !fromRotation.isObject3D){
+	    } else if (rotation == MOVE.NO_CHANGE && fromRotation && !fromRotation.isObject3D){
 		rotationCurve = new THREE.LineCurve3(fromRotation, fromRotation);
 	    } else {
 		rotationCurve = rotation;
@@ -263,15 +375,25 @@ class MOVE {
 	}
 
 	var startAfter;
+        const prevMoveEndTime = this.getMoveEndTime();
 	if (this.absoluteStartTime){
-	    startAfter = startTime-this.getMoveEndTime();
+            // We allow time to be null if absolute time is used
+            // In that case we set the endTime to the startTime of the next to() call
+            if (prevMoveEndTime == null){
+                startAfter = 0;
+                this.moveQueue[this.moveQueue.length-1].endTime = startTime;
+                this.moveQueue[this.moveQueue.length-1].toTime = startTime - this.moveQueue[this.moveQueue.length-1].startTime;
+            } else {
+	        startAfter = startTime-this.getMoveEndTime();
+            }
 	    if (startAfter < 0)
 		console.error("MOVE.to() scheduled in past by " + startAfter + " seconds");
 	} else {
+            console.assert(prevMoveEndTime != null);
 	    startAfter = startTime;
 	    startTime = this.getMoveEndTime() + startAfter;
 	}
-	const endTime = startTime + time;
+	const endTime = time != null ? startTime + time : null;
 	this.moveQueue.push({
 	    startAfter: startAfter,
 	    toTime: time,
@@ -279,12 +401,37 @@ class MOVE {
 	    endTime: endTime,
 	    easing: easing,
 	    pathCurve: pathCurve,
+	    posCatchUpSpeed: posCatchUpSpeed,
+	    rotationCatchUpSpeed: rotationCatchUpSpeed,
 	    rotationCurve: rotationCurve,
 	    prevPosObject: fromPos,
-	    prevLookAtObject: fromRotation
+	    prevLookAtObject: fromRotation,
+            tiltOffset: tiltOffset,
+            useLookAtObjUp: useLookAtObjUp,
+            rollSpeed: rollSpeed
 	})
 
 	return this
+    }
+
+    lookAt(pos, up=this.obj.up){
+	const parent = this.obj.parent;
+	this.obj.updateWorldMatrix( true, false );
+	const worldPos = pos.clone().setFromMatrixPosition( this.obj.matrixWorld );
+
+	if ( this.obj.isCamera || this.obj.isLight ) {
+	    _m1.lookAt(worldPos, pos, up );
+	} else {
+	    _m1.lookAt(pos, worldPos, up );
+	}
+
+	this.obj.quaternion.setFromRotationMatrix( _m1 );
+
+	if ( parent ) {
+	    _m1.extractRotation( parent.matrixWorld );
+	    _q1.setFromRotationMatrix( _m1 );
+	    this.obj.quaternion.premultiply( _q1.invert() );
+	}
     }
 
     
@@ -306,6 +453,7 @@ class MOVE {
 	    if (time >= nextMove.startTime){
 		nextMove.started = true;
 		newMoveStarted = true;
+                this.prevTime = null;
 		// We should start move now
 		if (this.log)
 		    console.log(this.log + ": Time " + time + " Move " + this.curMove + " started");
@@ -337,18 +485,37 @@ class MOVE {
 	    }
 	} else {
 	    // Check move progress and apply easing
-	    var progress = Math.min(time-nextMove.startTime,nextMove.toTime)/nextMove.toTime;
-	    if (nextMove.easing){
-		progress = nextMove.easing(progress);
-	    }
-	    
+            var progress = 0;
+            if (nextMove.toTime != null){
+	        var progress = Math.min(time-nextMove.startTime,nextMove.toTime)/nextMove.toTime;
+	        if (nextMove.easing){
+		    progress = nextMove.easing(progress);
+	        }
+            }
+
+            // Check current position
+            const curPos = this.obj.position.clone();
+            
 	    // Change position and rotation
 	    var pathCurve = nextMove.pathCurve;
+            if (pathCurve && pathCurve.value)
+                pathCurve = pathCurve.value;
+            
 	    if (pathCurve){
-		if (pathCurve.isObject3D){
+		if (pathCurve.isObject3D || pathCurve instanceof THREE.Curve || pathCurve instanceof CurveFunction ){
+                    if (newMoveStarted)
+                        nextMove.startPos = this.obj.position.clone();
+                    const posCatchUpSpeed = nextMove.posCatchUpSpeed || 0.5;
 		    const fromPos = this.obj.position;
-		    var toPos = pathCurve.getWorldPosition(new THREE.Vector3());
-		    toPos = fromPos.clone().lerp(toPos, 0.5);
+                    var toPos;
+                    if (pathCurve.isObject3D)
+		        toPos = pathCurve.getWorldPosition(new THREE.Vector3());
+                    else
+                        toPos = pathCurve.getPointAt(progress);
+                    if (posCatchUpSpeed == MOVE.CATCH_UP_LINEAR)
+		        toPos = nextMove.startPos.clone().lerp(toPos, progress);
+                    else
+		        toPos = fromPos.clone().lerp(toPos, posCatchUpSpeed);
 		    this.obj.position.copy(toPos);
 		} else {
 		    if (newMoveStarted && nextMove.prevPosObject && nextMove.prevPosObject.isObject3D){
@@ -369,12 +536,16 @@ class MOVE {
 	    }
 	    
 	    var rotationCurve = nextMove.rotationCurve;
+            if (rotationCurve && rotationCurve.value)
+                rotationCurve = rotationCurve.value;
+            
 	    if (rotationCurve){
-		var rotationDone = false;
 		if (rotationCurve.isObject3D || typeof rotationCurve === 'function'){
 		    // If roateCurve is a 3D Object then we rotate to face that
 		    const objPos = new THREE.Vector3();
 
+		    // Get position of object to rotate towards depending on the
+		    // type of the object
 		    if (typeof rotationCurve === 'function')
 			rotationCurve(objPos);
 		    else if (rotationCurve.isMorphCloud)
@@ -382,29 +553,44 @@ class MOVE {
 		    else
 		 	rotationCurve.getWorldPosition(objPos);
 
-		    const currentRotation = new THREE.Vector3().setFromEuler(this.obj.rotation);
-		    this.obj.lookAt(objPos);
-		    var newRotation = new THREE.Vector3().setFromEuler(new THREE.Euler().setFromQuaternion(this.obj.quaternion));
-		    const rotationVector = newRotation.clone().sub(currentRotation);
-		    // "Normalise" the length to the closest way to get to the new rotation
-		    const rotationVectorSign = new THREE.Vector3(rotationVector.x < 0.0 ? -1:1, rotationVector.y < 0.0 ? -1:1, rotationVector.z < 0.0 ? -1:1);
-		    const rotateFactor = rotationVector.divide(rotationVectorSign.clone().multiplyScalar(2*Math.PI)).floor().multiply(rotationVectorSign);
-		    rotationVector.sub(rotateFactor.multiplyScalar(2*Math.PI));
-		    const rotationLength = rotationVector.length();
-		    const timeSinceLastRotation = nextMove.prevTime || nextMove.startTime;
+		    // Make a direction vector to the target and to a point the
+		    // current rotation is pointed at 
+		    const targetDirVector = objPos.clone().sub(this.obj.position);
+		    const curDirVector = new THREE.Vector3();
+		    this.obj.getWorldDirection(curDirVector);
+
+		    // Check if we need to catch up
+		    const catchUpSpeed = nextMove.rotationCatchUpSpeed || Math.PI/4;
+		    if (newMoveStarted || nextMove.catchingUp){
+			// Find time since last rotation
+			const timeSinceLastRotation = this.prevTime || nextMove.startTime;
+			// Assuming a catch up speed of pi/4 radians/s unless we have explicitly given
+			// the catchup speed to the to() command
+			const deltaTime = time-timeSinceLastRotation;
+			if (deltaTime == 0.0)
+			    deltaTime = 1/30;
+                        // Limit rotation
+                        const newTargetDirVector = this.limitRotationSpeed(targetDirVector, curDirVector, catchUpSpeed, deltaTime);
+                        // Check if rotation was limited
+                        if (!newTargetDirVector.equals(targetDirVector)){
+                            objPos.copy(this.obj.position).add(newTargetDirVector);
+                            nextMove.catchingUp = true;
+                        } else {
+			    nextMove.catchingUp = false;
+                        }
+		    }
+                    this.objPrevTangent = objPos.clone().sub(curPos).normalize();
+		    this.lookAt(objPos, rotationCurve.isObject3D && nextMove.useLookAtObjUp ? rotationCurve.up : this.obj.up);
+		} else if (rotationCurve == MOVE.ROTATE_TO_TANGENT || rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT || rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_ROLL){
+		    // Find time since last rotation
+		    const timeSinceLastRotation = this.prevTime || nextMove.startTime;
+		    // Assuming a catch up speed of pi/4 radians/s unless we have explicitly given
+		    // the catchup speed to the to() command
 		    const deltaTime = time-timeSinceLastRotation;
 		    if (deltaTime == 0.0)
-			deltaTime = 0.0001;
-		    const rotationPerSecond = rotationLength/deltaTime;
-		    
-		    if (rotationPerSecond > Math.PI/4){
-		    	newRotation = currentRotation.add(rotationVector.multiplyScalar(deltaTime*(Math.PI/4)/rotationLength));
-	 		this.obj.rotation.setFromVector3(newRotation);
-		    }
-		} else if (rotationCurve == MOVE.ROTATE_TO_TANGENT){
-		    this.obj.rotation.setFromVector3(this.getRotationAngleCurve(nextMove.pathCurve, progress));
-		} else if (rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT){
-		    this.obj.rotation.setFromVector3(this.getRotationAngleCurve(nextMove.pathCurve, progress, true));
+			deltaTime = 1/30;
+		    this.obj.rotation.setFromVector3(this.getRotationAngleCurve(nextMove.pathCurve, progress, rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_TILT,
+                                                                                rotationCurve == MOVE.ROTATE_TO_TANGENT_AND_ROLL, nextMove.rotationCatchUpSpeed, deltaTime, nextMove.tiltOffset, nextMove.rollSpeed));
 		} else {
 		    if (newMoveStarted && nextMove.prevLookAtObject && nextMove.prevLookAtObject.isObject3D){
 			const fromRotation = new THREE.Vector3().setFromEuler(this.obj.rotation);
@@ -420,14 +606,30 @@ class MOVE {
 			nextMove.rotationCurve = rotationCurve;
 		    }
 
-		    if (rotationCurve && !rotationDone)
-			this.obj.rotation.setFromVector3(rotationCurve.getPointAt(progress));
+                    this.objPrevTangent = null;
+		    if (rotationCurve){
+                        var toRotation = rotationCurve.getPointAt(progress);
+                        if (nextMove.rotationCatchUpSpeed){
+                            const curRotation = new THREE.Vector3().setFromEuler(this.obj.rotation);
+                            toRotation = curRotation.clone().lerp(toRotation, nextMove.rotationCatchUpSpeed);                        
+                        } 
+                        // Should possibly flip sign of z-component if not camera or light?
+                        this.objPrevTangent = new THREE.Vector3(0,0,1).applyEuler(new THREE.Euler().setFromVector3(toRotation));
+			this.obj.rotation.setFromVector3(toRotation);
+                    }
 		}
 	    }
-	    nextMove.prevTime = time;
-   
-	    // Check if move is done
-	    if ((time-nextMove.startTime)<nextMove.toTime)
+	    this.prevTime = time;
+            this.prevPos = curPos;
+            
+	    // Check if move is done - use toTime is not null - if null then use startTime of next move
+            var toTime;
+            if (nextMove.toTime != null)
+                toTime = nextMove.toTime
+            else
+                toTime = this.moveQueue[this.curMove+1].startTime;
+
+	    if ((time-nextMove.startTime)<toTime)
 		// Not done yet
 		return;
 	}
@@ -436,8 +638,8 @@ class MOVE {
 	nextMove.started=false;
 	if (this.moveQueue.length > this.curMove+1){
 	    this.curMove++;
-	    if (this.log)
-		console.log(this.log + ": Time " + this.clock.getElapsedTime() + " Waiting for move " + this.curMove);
+	    //if (this.log)
+	    //	console.log(this.log + ": Time " + this.clock.getElapsedTime() + " Waiting for move " + this.curMove);
 	} else {
 	    this.clock.stop();
 	    if (this.onEnd)

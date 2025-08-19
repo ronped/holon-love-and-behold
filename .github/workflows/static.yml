@@ -29,10 +29,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Install Git LFS
+        run: |
+            sudo apt-get update
+            sudo apt-get install git-lfs
+            git lfs install
       - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: true
+          submodules: recursive
+      - name: Update submodules to latest remote commits
+        run: git submodule update --init --recursive --remote
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

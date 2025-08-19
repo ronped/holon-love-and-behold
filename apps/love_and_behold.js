@@ -4,7 +4,6 @@ import TWEEN from '@tweenjs/tween.js';
 import { holonLogoGeometry } from "../libs/holon_logo.js";
 import { morphPointCloud, morphLineCloud } from "../libs/morph_point_cloud.js";
 import { StarGeometry } from "../libs/star_geometry.js";
-import { FBMGeometry } from "../libs/fbm_geometry.js";
 import { TextCloudGeometry } from "../libs/text_cloud_geometry.js";
 import { Audio2Texture } from "../libs/audio2texture.js";
 import { MOVE, CurveFunction } from "../libs/move.js";
@@ -598,7 +597,7 @@ const timePerEight = timePerBeat/3;
 
 const loadPosMap = true;
 const dumpPosMap = false;
-const enableInfo = true;
+const enableInfo = false;
 
 const heartPointSprite = "../assets/heart.png"
 
@@ -641,7 +640,6 @@ const fishLyrics = [[],[]];
 const jellyLyrics = [];
 const jellyLyricsInstance = [];
 var cover;
-const coverDepthTexture = new THREE.TextureLoader().load("../assets/love-and-behold-single-cover-depthmap-2.png");
 const coverTexture = new THREE.TextureLoader().load("../assets/love-and-behold-single-cover.png");
 const waterTexture = new THREE.TextureLoader().load("../assets/water.png");
 coverTexture.colorSpace = THREE.SRGBColorSpace;
@@ -3020,6 +3018,7 @@ const playControl = {startTime: Number(localStorage.getItem("startTime") || 0)};
 const control = gui.addFolder('Control');
 control.add(playControl, 'startTime', 0, 1020, 1).onChange( value => {localStorage.setItem("startTime", value) });
 gui.close();
+gui.hide();
 
 var waterMode = 2;
 document.addEventListener("keypress",

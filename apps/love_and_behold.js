@@ -49,7 +49,13 @@ THREE.DefaultLoadingManager.onLoad = function ( ) {
 };
 
 THREE.DefaultLoadingManager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
-	console.log( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+    const reveal = document.getElementById('revealRect');
+    if (reveal){
+        const svg = document.querySelector('.logo');
+        const vb = svg.viewBox.baseVal;  // get viewBox width
+        reveal.setAttribute('width', String(vb.width*itemsLoaded/99));
+    }
+    console.log( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
 };
 
 THREE.DefaultLoadingManager.onError = function ( url ) {
@@ -83,7 +89,7 @@ function getCameraCenterDistance(){
 
 // create camera
 var camera = new THREE.PerspectiveCamera( camera_fov, window.innerWidth/window.innerHeight, 0.1, 20000 );
-camera.position.set(0.0,1,getCameraCenterDistance(window.innerWidth/window.innerHeight));
+camera.position.set(0.0,1,getCameraCenterDistance());
 const cameraMove = new MOVE(camera, true, "cameraMove");
 const cameraRotate = new MOVE(camera, true, "cameraRotate");
 
@@ -197,7 +203,7 @@ if (enableAA)
 function onWindowResize() {
     const aspect = window.innerWidth / window.innerHeight;
     camera.aspect = aspect;
-    camera.position.z = getCameraCenterDistance();
+    camera.position.set(0.0,1,getCameraCenterDistance());
     camera.updateProjectionMatrix();
     
     renderer.setSize( window.innerWidth, window.innerHeight );
@@ -598,6 +604,7 @@ const timePerEight = timePerBeat/3;
 const loadPosMap = true;
 const dumpPosMap = false;
 const enableInfo = false;
+const enableGUI = false;
 
 const heartPointSprite = "../assets/heart.png"
 
@@ -647,6 +654,9 @@ coverTexture.wrapS = THREE.RepeatWrapping;
 coverTexture.wrapT = THREE.RepeatWrapping;
 
 const loadPromises = [];
+
+// Play button to start animation
+const playButton = document.getElementById('playButton');
 
 
 // Vortex depth texture
@@ -2011,7 +2021,7 @@ async function makePointCloud(){
     handlePromises(loadPromises, () => {
 	const loadingScreen = document.getElementById( 'loading-screen' );
 	loadingScreen.classList.add( 'fade-out' );
-	loadingScreen.remove();
+        setTimeout(() => {loadingScreen.remove()}, 2000);
 	morphPointCloud.downloadAllPosMaps();
 	morphLineCloud.downloadAllPosMaps();
 	followCameraLookAtPoints = [seagull_point_cloud, ...fishPointCloud];
@@ -2151,6 +2161,8 @@ function initJellyfishInstances(){
 
 
 function resetCoreography(){
+    playButton.classList.remove('fade-out');
+
     if (sunElevationTween){
         sunElevationTween.end();
         TWEEN.remove(sunElevationTween);
@@ -2160,7 +2172,7 @@ function resetCoreography(){
     water.position.set(0,0,0);
     MOVE.reset();
     resetSkyParameters(skyParameters);
-    camera.position.set(0.0,1,getCameraCenterDistance(window.innerWidth/window.innerHeight));
+    camera.position.set(0.0,1,getCameraCenterDistance());
     camera.rotation.set(0,0,0);
     audioTexture.stop();
     
@@ -3018,7 +3030,8 @@ const playControl = {startTime: Number(localStorage.getItem("startTime") || 0)};
 const control = gui.addFolder('Control');
 control.add(playControl, 'startTime', 0, 1020, 1).onChange( value => {localStorage.setItem("startTime", value) });
 gui.close();
-gui.hide();
+if (!enableGUI)
+    gui.hide();
 
 var waterMode = 2;
 document.addEventListener("keypress",
@@ -3097,3 +3110,8 @@ renderer.domElement.addEventListener('click',
 				     function (event) {
 					 //startCoreography();
 				     }, false);
+
+playButton.addEventListener('click', () => {
+    startCoreography(false, playControl.startTime);
+    playButton.classList.add('fade-out');
+});

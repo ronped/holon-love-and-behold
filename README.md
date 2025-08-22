@@ -11,3 +11,4 @@ Thanks to the following for inspiration and use of their work:
 - Simplex Waves to make water more realistic: https://github.com/dgreenheck/threejs-water-shader/tree/main
 - Generating models from images: https://huggingface.co/spaces/trellis-community/TRELLIS
 - Generating images: https://www.midjourney.com/
+- https://thebookofshaders.com/

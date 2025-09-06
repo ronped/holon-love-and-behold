@@ -8,6 +8,7 @@ This code was done fast and is not very clean. During the devlopment some of the
 Thanks to the following for inspiration and use of their work:
 - Seagull model: https://sketchfab.com/geminga
 - Jellyfish model: https://sketchfab.com/n-
+- Whale model: https://sketchfab.com/rkuhlf
 - Simplex Waves to make water more realistic: https://github.com/dgreenheck/threejs-water-shader/tree/main
 - Generating models from images: https://huggingface.co/spaces/trellis-community/TRELLIS
 - Generating images: https://www.midjourney.com/
